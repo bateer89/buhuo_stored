@@ -7,7 +7,7 @@ DECLARE thatDayEnd date;
 select version(), @@sql_mode;
 SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));
 
-CALL classify_new();
+##CALL classify_new();
 
 
 set thatDayEnd=DATE_ADD(thisDay,INTERVAL 0 DAY);
@@ -30,10 +30,11 @@ x.sdate AS sdate,
 getZkb(x.zlprice,x.normalprice) AS zkb,
 COUNT(x.zlprice) AS dayNumber,
 COUNT(IF((x.zlprice<(getZkb(x.zlprice,x.normalprice)*x.normalprice)),1,0)) AS discDayNumber
-FROM zn_dayly_sales x
-WHERE x.sdate<=thatDayEnd AND x.sdate>thatDay
+FROM tmp1_daily_sales x 
+WHERE x.sdate<=thatDayEnd AND x.sdate>thatDay 
 GROUP BY x.shopid,x.goodsid,x.zlprice;
 
+create index index_1 on tmp_onetime_tmp_1(shopid,goodsid,zkb);
 
 DROP TABLE IF EXISTS tmp_onetime_tmp_2;
 CREATE TABLE tmp_onetime_tmp_2 AS
@@ -54,6 +55,9 @@ SUM(y.discDayNumber) AS discDayNumber
 FROM tmp_onetime_tmp_1 y
 GROUP BY y.shopid,y.goodsid,y.zkb;
 
+##建索引
+create index index_1 on tmp_onetime_tmp_2(shopid,goodsid);
+
 # 销售数量求和
 DROP TABLE IF EXISTS tmp_onetime_tmp_2_1;
 CREATE TABLE tmp_onetime_tmp_2_1 AS
@@ -65,25 +69,29 @@ FROM tmp_onetime_tmp_2 z
 WHERE z.zkb<>0.9 
 GROUP BY z.shopid,z.goodsid;
 
-UPDATE tmp_onetime_tmp_2 a,tmp_onetime_tmp_2_1 b
+##建索引
+create index index_1 on tmp_onetime_tmp_2_1(shopid,goodsid);
+
+UPDATE tmp_onetime_tmp_2 a join tmp_onetime_tmp_2_1 b on a.shopid=b.shopid AND a.goodsid=b.goodsid
 SET a.dayNumber=(totalWeeks*7-b.dayNumberSum)
-WHERE a.shopid=b.shopid AND a.goodsid=b.goodsid AND a.zkb=0.9;
+WHERE a.zkb=0.9;
 
 
 
-INSERT INTO zn_price_dms (shopid,goodsid,normalprice,disc1,disc2,band1,band2,trueprice,dms)
+INSERT INTO zn_price_dms (shopid,goodsid,normalprice,disc1,disc2,band1,band2,trueprice,dms,sdate)
 SELECT 
 a.shopid AS shopid,
 a.goodsid AS goodsid,
 a.normalprice AS normalprice,
 a.zkb AS disc1,
 CASE WHEN (a.zkb<0.95) THEN a.zkb+0.05
-												ELSE a.zkb+0.1 END AS disc2,
+            ELSE a.zkb+0.1 END AS disc2,
 a.zkb*20 AS band1,
 CASE WHEN (a.zkb*20<18) THEN a.zkb*20+1
 												ELSE a.zkb*20+2 END AS band2,
 (a.salevalue/a.qty) AS trueprice,
-a.qty/a.dayNumber AS dms  #销售数量
+a.qty/a.dayNumber AS dms,  #销售数量
+now() as sdate
 FROM tmp_onetime_tmp_2 a
 ON DUPLICATE KEY UPDATE
 zn_price_dms.normalprice=VALUES(normalprice),
@@ -92,15 +100,14 @@ zn_price_dms.disc2=VALUES(disc2),
 zn_price_dms.band1=VALUES(band1),
 zn_price_dms.band2=VALUES(band2),
 zn_price_dms.trueprice=VALUES(trueprice),
-zn_price_dms.dms=VALUES(dms);
-
+zn_price_dms.dms=VALUES(dms),
+zn_price_dms.sdate=now();
 
 
 #update xlid
 update zn_price_dms,v_goods 
 SET zn_price_dms.xlid=v_goods.deptid
 WHERE zn_price_dms.goodsid=v_goods.goodsid;
-
 
 #3、生成小类折扣与销量表zn_xl_dms初始数据
 # 数据源按照类别xlid、折扣比例disc1、disc2汇总，dms_disc=sum(dms)/此小类在disc1和disc2折扣段的单品数量，dms_ori=小类在原价销售时单品的日均销量/小类单品数
@@ -124,8 +131,7 @@ WHERE zn_price_dms.goodsid=v_goods.goodsid;
 
 		UPDATE zn_xl_dms a,zn_xl_dms b
 		set a.dms_ori=b.dms_disc
-		WHERE a.shopid=shopId and b.shopid=shopId and a.xlid=b.xlid and
+		WHERE a.shopid=b.shopId and b.shopid=a.shopId and a.xlid=b.xlid and
 					a.disc1<0.9 AND b.disc1=0.9;
-
 
 END
