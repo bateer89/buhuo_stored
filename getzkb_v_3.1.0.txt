@@ -4,6 +4,6 @@ getZkb
 
 BEGIN
 	#Routine body goes here...
-	IF (a/b<0.9) THEN RETURN FLOOR(a/b);
+	IF (a/b<0.9) THEN RETURN a/b;
 	ELSE RETURN 0.9; END IF;
 END
