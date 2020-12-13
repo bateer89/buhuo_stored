@@ -113,7 +113,7 @@ CASE WHEN weekflag=1 THEN 4
 FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND
 zn_goods.flag=0 AND
-(dayofweek(DATE_ADD(curdate(),INTERVAL 2 DAY))-1)=(SELECT LOCATE('1',zn_config.orderdate) MOD 7);
+SUBSTR(orderdate,(dayofweek(DATE_ADD(thisDate,INTERVAL 5 DAY)))MOD 7+1,1)='1' ;
 
 
 #k.取出商品在到货时的售价：到《补货系统促销明细》zn_prom_detail中
