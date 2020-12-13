@@ -3,7 +3,7 @@ getZkb
 返回 decimal(16,2)
 
 BEGIN
-	#Routine body goes here...
-	IF (a/b<0.9) THEN RETURN a/b;
-	ELSE RETURN 0.9; END IF;
+#Routine body goes here...
+ IF (a/b<0.9) THEN RETURN FLOOR(20.0*a/b)/20.0;
+ ELSE RETURN 0.9; END IF;
 END
