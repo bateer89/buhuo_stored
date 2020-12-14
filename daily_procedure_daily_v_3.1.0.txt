@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS `tmp_daily_tmp` (
   `period1` decimal(16,2) DEFAULT NULL COMMENT '季节时间达到的比例1',
   `period2` decimal(16,2) DEFAULT NULL COMMENT '季节时间达到的比例2',
 
+
   `weekflag` char(1) CHARACTER SET utf8 DEFAULT NULL,
+  `orderdate` char(8) CHARACTER SET utf8 DEFAULT NULL,
   `safedays` int(11) DEFAULT NULL,
   `arrivaldays` int(11) DEFAULT NULL,
   `sdate` datetime DEFAULT NULL COMMENT '更新日期时间',
@@ -80,8 +82,8 @@ CREATE TABLE IF NOT EXISTS `tmp_daily_tmp` (
 TRUNCATE TABLE tmp_daily_tmp;
 
 #j. 判断商品是否为订货日，如果是并且zn_goods表中商品flag=0（这一判断确保每个商品一天只进行一次补货）则触发这些商品补货 。
-INSERT INTO tmp_daily_tmp (goodsid,shopid,classtype,minorder,minstock,closeqty,weekflag,
-safedays,arrivaldays,sdate)
+INSERT INTO tmp_daily_tmp (goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,holiday_begindate,holiday_enddate,
+holidaytype,zs,ho_rate,seasontype,rate1,rate2,period1,period2,orderdate,weekflag,safedays,arrivaldays,sdate,weekflag_days)
 SELECT 
 zn_goods.goodsid AS goodsid,
 zn_goods.shopid AS shopid,
@@ -90,18 +92,17 @@ zn_goods.classtype AS classtype,
 zn_goods.minorder AS minorder,
 zn_goods.minstock AS minstock,
 zn_goods.closeqty AS closeqty,
-zn_goods.`holiday_begindate`,
-zn_goods.`holiday_enddate`,
-zn_goods.`holidaytype`,
-zn_goods.`ho_rate`,
-zn_goods.`zs`,
-zn_goods.`ho_rate`,
+zn_goods.holiday_begindate AS holiday_begindate,
+zn_goods.holiday_enddate AS holiday_enddate,
+zn_goods.holidaytype AS holidaytype,
+zn_goods.zs AS zs,
+zn_goods.ho_rate AS ho_rate,
 
-zn_goods.`seasontype`,
-zn_goods.`rate1`,
-zn_goods.`rate2`,
-zn_goods.`period1`,
-zn_goods.`period2`,
+zn_goods.seasontype AS seasontype,
+zn_goods.rate1 AS rate1,
+zn_goods.rate2 AS rate2,
+zn_goods.period1 AS period1,
+zn_goods.period2 AS period2,
 zn_config.orderdate AS orderdate,
 zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
@@ -140,7 +141,7 @@ x.goodsid=y.goodsid AND (x.trueprice/x.normalprice)>=y.disc1 AND
 #--当前售价=normalprice，未找到对应的dms或dms=0:说明是新品或者没有正常价销售过，zn_goods表flag=2,转s
 UPDATE zn_goods a,tmp_daily_tmp x
 SET a.flag=2 WHERE a.shopid=shopId AND x.shopid=shopId AND
-a.goodsid=x.goodsid AND y.AND (ISNULL(x.dms) OR x.dms=0.0) AND 
+a.goodsid=x.goodsid AND (ISNULL(x.dms) OR x.dms=0.0) AND 
 x.trueprice=x.normalprice;
 
 #--当前售价<>normalprice,未找到对应的dms:则根据这只单品的定价和取到的促销售价算出促销价所处的折扣段,再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转n
@@ -150,7 +151,7 @@ SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
 WHERE x.shopid=shopId AND y.shopid=shopId AND
 ISNULL(x.dms) AND x.goodsid=z.goodsid AND y.xlid=z.deptid AND 
 x.trueprice<>x.normalprice AND
-(x.price/x.normalprice)<zn_xl_dms.disc2 AND
+(x.price/x.normalprice)<y.disc2 AND
  (x.price/x.normalprice)>=disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
@@ -211,7 +212,7 @@ SET x.need_replenishment=CASE WHEN (x.leftsalingDays<x.arrivaldays+x.safedays+x.
 #理论补货量<最小订货量时不需要补货，否则需要补货。
 #实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
 UPDATE tmp_daily_tmp x 
-SET x.actualQty=CASE WHEN
+SET x.actual_qty=CASE WHEN
 ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms>(x.closeqty+x.minorder))
  THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder
 ELSE 0 END;
@@ -227,8 +228,8 @@ x.flag=1 AND y.flag=0;
 #s.更新zn_goods表qty、flag、sdate字段;
 UPDATE zn_goods x,tmp_daily_tmp y
 SET x.flag=y.flag,
-x.qty=y.actualQty,
-sdate=today
+x.qty=y.actual_qty,
+x.sdate=today
  WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 

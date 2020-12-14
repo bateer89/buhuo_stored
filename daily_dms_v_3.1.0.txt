@@ -8,9 +8,9 @@ DECLARE endOfYear date;
 SET beginOfYear=str_to_date(CONCAT(date_format(now(),'%Y'),'0101'),'%Y%m%d');
 SET endOfYear=str_to_date(CONCAT(date_format(now(),'%Y'),'1231'),'%Y%m%d');
 SET springFesitvalBegin=(SELECT zn_calendar.startdate FROM zn_calendar WHERE zn_calendar.holidayid=01 AND 
-		zn_calendar.sundatedate>beginOfYear AND zn_calendar.sundatedate<endOfYear LIMIT 1);
+		zn_calendar.sundate>beginOfYear AND zn_calendar.sundate<endOfYear LIMIT 1);
 SET springFestivalEnd=(SELECT zn_calendar.enddate FROM zn_calendar WHERE zn_calendar.holidayid=01 AND 
-		zn_calendar.sundatedate>beginOfYear AND zn_calendar.sundatedate<endOfYear LIMIT 1);
+		zn_calendar.sundate>beginOfYear AND zn_calendar.sundate<endOfYear LIMIT 1);
 
 
 #a0.判断zn_price_dms正常售价+是否变化：zn_goods中的normal是最新的正常售价。
@@ -19,7 +19,7 @@ SET springFestivalEnd=(SELECT zn_calendar.enddate FROM zn_calendar WHERE zn_cale
 
 
 #a1 春节期间所有商品在节日期间停止更新dms
-IF (thisDay<=endOfYear AND thisDay>=beginOfYear) THEN CALL daily_dms_sub(shopId,thisDay);
+IF NOT(thisDay<=springFestivalEnd AND thisDay>=springFesitvalBegin) THEN CALL daily_dms_sub(shopId,thisDay);
 END IF;
 
 END

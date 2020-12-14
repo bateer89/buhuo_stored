@@ -95,8 +95,10 @@ CREATE TABLE IF NOT EXISTS `tmp_prom_tmp` (
 
 TRUNCATE TABLE tmp_prom_tmp;
 
-INSERT INTO tmp_prom_tmp (goodsid,shopid,classtype,minorder,minstock,closeqty,weekflag,
-safedays,arrivaldays,sdate)
+INSERT INTO tmp_prom_tmp (goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,
+holiday_begindate,holiday_enddate,holidaytype,ho_rate,zs,seasontype,
+rate1,rate2,period1,period2,weekflag,safedays,arrivaldays,sdate,price,planqty,
+flag,manual_flag,weekflag_days)
 SELECT 
 zn_goods.goodsid AS goodsid,
 zn_goods.shopid AS shopid,
@@ -110,7 +112,6 @@ zn_goods.`holiday_enddate`,
 zn_goods.`holidaytype`,
 zn_goods.`ho_rate`,
 zn_goods.`zs`,
-zn_goods.`ho_rate`,
 
 zn_goods.`seasontype`,
 zn_goods.`rate1`,
@@ -147,7 +148,7 @@ UPDATE tmp_prom_tmp x,zn_xl_dms y,v_goods z
 SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
 WHERE x.shopid=shopId AND y.shopid=shopId AND
 ISNULL(x.dms) AND x.goodsid=z.goodsid AND y.xlid=z.deptid AND 
-(x.price/x.normalprice)<zn_xl_dms.disc2 AND
+(x.price/x.normalprice)<y.disc2 AND
  (x.price/x.normalprice)>=disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
@@ -208,7 +209,7 @@ SET x.need_replenishment=CASE WHEN (x.leftsalingDays<x.arrivaldays+x.safedays+x.
 #理论补货量<最小订货量时不需要补货，否则需要补货。
 #实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
 UPDATE tmp_prom_tmp x 
-SET x.actualQty=CASE WHEN
+SET x.actual_qty=CASE WHEN
 ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms>(x.closeqty+x.minorder))
  THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder
 ELSE 0 END;
@@ -218,8 +219,8 @@ ELSE 0 END;
 #h.更新zn_goods表qty、flag、sdate字段;
 UPDATE zn_goods x,tmp_prom_tmp y
 SET x.flag=y.flag,
-x.qty=y.actualQty,
-sdate=today
+x.qty=y.actual_qty,
+x.sdate=today
  WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 
