@@ -136,6 +136,9 @@ GROUP BY  z.shopid
          ,z.goodsid;
 
 
+UPDATE tmp_onetime_tmp_2 a
+SET a.allDayNumber=totalWeeks*7;
+
 
 UPDATE tmp_onetime_tmp_2 a join tmp_onetime_tmp_2_1 b on a.shopid=b.shopid AND a.goodsid=b.goodsid
 SET a.allDayNumber=(totalWeeks*7-b.dayNumberSum)
@@ -197,6 +200,6 @@ WHERE zn_price_dms.goodsid=v_goods.goodsid;
 		UPDATE zn_xl_dms a,zn_xl_dms b
 		set a.dms_ori=b.dms_disc
 		WHERE a.shopid=b.shopId and b.shopid=a.shopId and a.xlid=b.xlid and
-					a.disc1<0.9 AND b.disc1=0.9;
+					a.disc1<0.95 AND b.disc1=0.95;
 
 END
