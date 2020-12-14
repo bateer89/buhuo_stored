@@ -1,0 +1,14 @@
+
+CREATE TABLE tmp_prom_spring_tmp AS
+SELECT * FROM tmp_prom_tmp x
+WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND
+x.holiday_enddate>today;
+
+#F3:B、C类商品按照A类商品的规则补货：当前日期>=begindate-6 按照A类订货周期订货
+UPDATE tmp_prom_spring_tmp x,zn_config y
+SET x.orderdate=y.Orderdate,
+x.weekflag=y.Weekflag,
+x.safedays=y.Safedays,
+x.arrivaldays=y.Arrivaldays
+WHERE x.shopid=shopId AND y.shopid=shopId AND 
+(x.classtype='B' OR x.classtype='c') AND y.classtype='A';
