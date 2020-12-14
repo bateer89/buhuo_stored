@@ -112,8 +112,6 @@ FROM tmp_everyday_tmp_1 y
 GROUP BY  y.shopid
          ,y.goodsid
          ,y.zkb;
-
-
 # 销售数量求和
 DROP TABLE IF EXISTS tmp_everyday_tmp_2_1;
 CREATE TABLE tmp_everyday_tmp_2_1 (
@@ -139,12 +137,12 @@ GROUP BY  z.shopid
 
 
 UPDATE tmp_everyday_tmp_2 a join tmp_everyday_tmp_2_1 b on a.shopid=b.shopid AND a.goodsid=b.goodsid
-SET a.allDayNumber=(totalWeeks*7-b.dayNumberSum)
+SET a.allDayNumber=(14-b.dayNumberSum)
 WHERE a.zkb=0.95;
 
 
 #update xlid
-update tmp_everyday_tmp_2,v_goods
+update tmp_everyday_tmp_2,v_goods 
 SET tmp_everyday_tmp_2.xlid=v_goods.deptid
 WHERE tmp_everyday_tmp_2.goodsid=v_goods.goodsid;
 
@@ -176,31 +174,6 @@ zn_price_dms.trueprice=VALUES(trueprice),
 zn_price_dms.dms=VALUES(dms),
 zn_price_dms.sdate=now();
 
-
-
-
-#3、生成小类折扣与销量表zn_xl_dms初始数据
-# 数据源按照类别xlid、折扣比例disc1、disc2汇总，dms_disc=sum(dms)/此小类在disc1和disc2折扣段的单品数量，dms_ori=小类在原价销售时单品的日均销量/小类单品数
-
-		REPLACE INTO zn_xl_dms (shopid,xlid,disc1,disc2,
-        dms_disc,dms_ori,sdate)
-    SELECT 
-        x.shopid AS shopid,
-        x.xlid AS xlid,
-        x.disc1 AS disc1,
-        x.disc2 AS disc2,
-        SUM(x.dms)/COUNT(x.dms) AS dms_disc,
-        0 AS dms_ori,
-        thisDay AS sdate
-    FROM
-        zn_price_dms x
-		GROUP BY x.shopid,x.xlid,x.disc1;
-
-
-		UPDATE zn_xl_dms a,zn_xl_dms b
-		set a.dms_ori=b.dms_disc
-		WHERE a.shopid=b.shopId and b.shopid=a.shopId and a.xlid=b.xlid and
-					a.disc1<0.9 AND b.disc1=0.9;
 
 
 END
