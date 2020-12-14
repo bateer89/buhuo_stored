@@ -5,6 +5,7 @@ DECLARE today date;
 DECLARE springfestivalbegin date;
 DECLARE springfestivalend date;
 DECLARE chuyi date;
+DECLARE first_threshold varchar(10);
 
 
 SET today=thisDay;
@@ -12,7 +13,7 @@ SET springfestivalbegin=DATE_SUB(
 (SELECT zn_calendar.startdate FROM zn_calendar WHERE holidayid='01' AND DATE_FORMAT(zn_calendar.startdate,'%Y')=YEAR(today)),
 INTERVAL 6 DAY);
 SET chuyi=
-(SELECT zn_calendar.sundatedate FROM zn_calendar WHERE holidayid='01' AND DATE_FORMAT(zn_calendar.startdate,'%Y')=YEAR(today));
+(SELECT zn_calendar.sundate FROM zn_calendar WHERE holidayid='01' AND DATE_FORMAT(zn_calendar.startdate,'%Y')=YEAR(today));
 
 #将v_goods和v_zn_goodsshop 转成表
 #DROP TABLE IF EXISTS tmp_everyday_v_goods;
@@ -43,7 +44,13 @@ FROM
 WHERE
 (v_zn_goodsshop.shopid=shopId) AND
  ((`v_zn_goodsshop`.`goodsid` = `v_goods`.`goodsid`)AND
-(`v_goods`.`flag`=0) AND (`v_zn_goodsshop`.`stocktype`=0));
+(`v_goods`.`flag`=0) AND (`v_zn_goodsshop`.`stocktype`=0) and v_zn_goodsshop.flag in (0,8,9));
+
+##对T类商品进行标注(v_tgoods)
+
+UPDATE zn_goods a,v_tgoods b 
+SET a.classtype='T'
+WHERE a.goodsid in (SELECT b.goodsid FROM v_tgoods b);
 
 
 ##############10min#############
@@ -61,9 +68,17 @@ WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
 
 
 #	e	更新zn_goods表的季节属性相关字段：只有在季节的时间段内需要
-#更新季节属性，时间段外为普通商品
+#更新季节属性，
 #源表zn_season_xl
 ##############10min#############
+##!!时间段外为普通商品!!
+
+SET first_threshold=CASE WHEN (zn_season_xl.begindate<=DATE_FORMAT(thisDay,'%m-%d') AND 
+zn_season_xl.begindate>DATE_FORMAT(thisDay,'%m-%d')) 
+															THEN (SELECT x.begindate FROM zn_season_goods x ORDER BY x.begindate ASC LIMIT 1) 
+															ELSE (SELECT x.begindate FROM zn_season_goods x ORDER BY x.begindate DESC LIMIT 1) 
+												 END;
+
 UPDATE zn_goods,zn_season_xl
 SET 
 zn_goods.seasontype=1,
@@ -72,7 +87,7 @@ zn_goods.rate1=zn_season_xl.rate1,
 zn_goods.rate2=zn_season_xl.rate2,
 zn_goods.period1=zn_season_xl.period1,
 zn_goods.period2=zn_season_xl.period2
-WHERE zn_goods.xlid=zn_season_xl.xlid;
+WHERE zn_goods.xlid=zn_season_xl.xlid AND zn_season_xl.begindate=first_threshold;
 
 
 #	f	更新zn_goods表的节日属性
@@ -85,7 +100,8 @@ SELECT
 zn_holiday_goods.goodsid AS goodsid,
 zn_holiday_goods.xlid AS xlid
 FROM zn_calendar,zn_holiday_goods WHERE zn_calendar.holidayid=zn_holiday_goods.holidayid AND
-zn_calendar.startdate<=today AND zn_calendar.enddate>today;
+zn_calendar.startdate<=today AND zn_calendar.enddate>today AND 
+YEAR(zn_calendar.sundate)=YEAR(thisday);   ##控制zn_calendar的年份
 ALTER TABLE tmp_everyday_holiday1 ADD INDEX index_1(goodsid);
 
 UPDATE zn_goods JOIN tmp_everyday_holiday1 x
@@ -97,7 +113,7 @@ IF (today>=springfestivalbegin AND today<chuyi)THEN
 												zn_goods.holiday_begindate=springfestivalbegin,
 												zn_goods.holiday_enddate=chuyi
 										WHERE zn_goods.shopid=shopId AND zn_goods.goodsid NOT in 
-												(SELECT zn_holiday_goods.goodsid FROM zn_holiday_goods);
+												(SELECT zn_holiday_goods.goodsid FROM zn_holiday_goods where holidayid='01');
 END IF;
 
 
@@ -114,5 +130,10 @@ today<zn_season_across.nextdate;
 
 #h.处理zn_season_across表数据：当前日期大于表中季节开始日期的记录可删除
 	DELETE FROM zn_season_across WHERE zn_season_across.begindate<today;
+
+
+#closeqty 赋值
+
+
 
 END

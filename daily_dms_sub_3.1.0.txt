@@ -65,7 +65,8 @@ getZKB(x.zlprice,x.normalprice) AS zkb,
 COUNT(x.zlprice) AS dayNumber,
 COUNT(IF((x.zlprice<(getZKB(x.zlprice,x.normalprice)*x.normalprice)),1,0)) AS discDayNumber
 FROM zn_dayly_sales x 
-WHERE x.shopid=shopId AND x.sdate<=today AND x.sdate>2WeeksBefore
+WHERE x.shopid=shopId AND x.goodsid NOT in (SELECT y.goodsid FROM zn_prom_detail_tmp y WHERE y.shopid=shopId)
+ AND x.sdate<=today AND x.sdate>2WeeksBefore
 GROUP BY x.shopid,x.goodsid,x.zlprice;
 
 
@@ -134,6 +135,10 @@ WHERE z.zkb<0.95
 GROUP BY  z.shopid
          ,z.goodsid;
 
+
+
+UPDATE tmp_everyday_tmp_2 a
+SET a.allDayNumber=14;
 
 
 UPDATE tmp_everyday_tmp_2 a join tmp_everyday_tmp_2_1 b on a.shopid=b.shopid AND a.goodsid=b.goodsid

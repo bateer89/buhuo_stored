@@ -36,7 +36,7 @@ SET beginOfthisSeason=str_to_date(beginOfthisSeasonvachar,'%Y-%m-%d');
 SET endOfthisSeason=str_to_date(endOfthisSeasonvachar,'%Y-%m-%d');
 #######---------------------Step3-------------------
 
-SET 3MonthEarlier=DATE_SUB(today,INTERVAL 90 DAY);
+SET 3MonthEarlier=DATE_add(today,INTERVAL 30 DAY); 
 
 
 
@@ -80,7 +80,7 @@ zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate
 FROM zn_goods,zn_config
-WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND
+WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND zn_goods.classtype=zn_config.Classtype AND
 zn_goods.seasontype=1;
 
 
@@ -89,7 +89,8 @@ zn_goods.seasontype=1;
 DELETE tmp_season_tmp FROM tmp_season_tmp,zn_season_goods 
 		WHERE tmp_season_tmp.shopid=shopId AND zn_season_goods.shopid=shopId AND 
 		tmp_season_tmp.goodsid=zn_season_goods.goodsid AND 
-		NOT (zn_season_goods.begindate>DATE_FORMAT(3MonthEarlier,'%m-%d') AND zn_season_goods.begindate<DATE_FORMAT(today,'%m-%d'));
+		NOT (zn_season_goods.begindate>DATE_FORMAT(today,'%m-%d') AND zn_season_goods.begindate<DATE_FORMAT(3MonthEarlier,'%m-%d'));
+
 
 #2：没有进行过首次补货：zn_season_across没有这条商品记录
 DELETE x FROM tmp_season_tmp x,zn_season_across y
@@ -122,11 +123,11 @@ WHERE a.shopid=shopId AND b.shopid=shopId AND
 a.goodsid=b.goodsid AND a.sdate>=beginOfthisSeason AND 
 a.sdate<endOfthisSeason;
 
-###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存
+###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存（v_shopstock)
 UPDATE tmp_season_tmp x,3YearsSeasonAverage y
-SET x.theoritical_qty=y.avg*12-x.minstock,
-x.actual_qty=CASE WHEN (y.avg*12-x.minstock<x.minorder) THEN 0.0
-											ELSE (CEILING((y.avg*12-x.minstock)/x.minorder)*x.minorder) END
+SET x.theoritical_qty=y.avg*14-x.minstock,
+x.actual_qty=CASE WHEN (y.avg*14-x.minstock<x.minorder) THEN 0.0
+											ELSE (CEILING((y.avg*14-x.minstock)/x.minorder)*x.minorder) END
 WHERE x.shopid=shopId AND y.shopid=shopId AND 
 x.goodsid=y.goodsid;
 
