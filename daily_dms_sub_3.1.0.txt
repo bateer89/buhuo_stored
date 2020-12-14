@@ -19,7 +19,7 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 15 DAY);
         `a`.`zlprice` AS `zlprice`
     FROM
         `zn_dayly_sales` `a`
-		WHERE a.shopid=shopId AND (a.zlprice/a.normalprice>=0.95)
+		WHERE a.shopid=shopId AND (a.zlprice/a.normalprice>=0.95) AND a.sdate
 		GROUP BY a.goodsid;
 
 ####更新zn_price_dms中正常售价对应的dms
@@ -34,7 +34,7 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 15 DAY);
         `b`.`goodsid` AS `goodsid`,
         `d`.`name` AS `goodsname`,
         `b`.`normalprice` AS `normalprice`,
-        18 AS `band1`,
+        19 AS `band1`,
         20 AS `band2`,
         FLOOR(b.zlprice/b.normalprice*100) AS `disc1`,
         CEILING(b.zlprice/b.normalprice*100) AS `disc2`,
@@ -45,8 +45,8 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 15 DAY);
 		WHERE b.shopid=shopId AND c.shopid=shopId AND b.goodsid=d.goodsid AND d.deptid=e.xlid;
 		
 #b. 用zn_daly_sales n周（与促销周期一致）数据计算zn_prom_detail_tmp表中的促销刚刚结束的促销品的日均销量=促销周期内销售数量/促销周期。
-		UPDATE `zn_prom_detail_tmp` `f`,`zn_dayly_sales`.`g`
-		SET f.totalQty=f.totalQty+g.qty
+		UPDATE `zn_prom_detail_tmp` `f`,`zn_dayly_sales` `g`
+		SET f.planQty=f.planQty+g.qty
 		WHERE f.shopid=shopId AND g.shopid=shopId AND f.goodsid=g.goodsid AND 
 					f.enddate>today AND g.sdate=today;
 		
@@ -65,12 +65,13 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 15 DAY);
         `d`.`name` AS `goodsname`,
         `f`.`normalprice` AS `normalprice`,
         getZkb(`b`.`price`,`f`.`normalprice`)*20 AS `band1`,
-        CASE WHEN (a.getZkb(`b`.`price`,`f`.`normalprice`)*20<18) THEN a.getZkb(`b`.`price`,`f`.`normalprice`)*20+1
-												ELSE a.getZkb(`b`.`price`,`f`.`normalprice`)*20+2 END AS band2,
-        FLOOR(b.zlprice/b.normalprice*100) AS `disc1`,
-        CEILING(b.zlprice/b.normalprice*100) AS `disc2`,
-        `b`.`trueprice` AS `trueprice`, # take ??? as trueprice
-        `b`.`dms` AS `dms`,
+        CASE WHEN (getZkb(`b`.`price`,`f`.`normalprice`)*20<18) THEN getZkb(`b`.`price`,`f`.`normalprice`)*20+1
+												ELSE getZkb(`b`.`price`,`f`.`normalprice`)*20+2 END AS band2,
+        FLOOR(b.price/f.normalprice*100) AS `disc1`,
+        CEILING(b.price/f.normalprice*100) AS `disc2`,
+        `b`.`price` AS `trueprice`, # take ??? as trueprice
+        #`b`.`dms` 
+         0 AS `dms`,
 				thisDay AS `sdate`
 		FROM zn_prom_detail_tmp b,v_zn_md_yt_ywq c,v_goods d,v_zn_cg_dl_zl_xl e,v_zn_goodsshop f
 		WHERE b.shopid=shopId AND b.enddate<=today AND c.shopid=shopId AND f.shopid=shopId AND b.goodsid=d.goodsid AND d.deptid=e.xlid AND b.goodsid=f.goodsid;
@@ -104,7 +105,7 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 15 DAY);
 
 
 #d.促销明细中间表zn_prom_detail_tmp表插入促销明细历史表zn_prom_detail_his后将中间表删除。
-		INSERT INTO zn_prom_detail_his(planid,planname,enddate,shopid,goodsid,price,planqty,flag,begindate,sdate,totalQty)
+		INSERT INTO zn_prom_detail_his(planid,planname,enddate,shopid,goodsid,price,planqty,flag,begindate,sdate,planQty)
     SELECT 
         `zn_prom_detail_tmp`.`planid` AS `planid`,
         `zn_prom_detail_tmp`.`planname` AS `planname`,
@@ -116,7 +117,7 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 15 DAY);
         `zn_prom_detail_tmp`.`flag` AS `flag`,
         `zn_prom_detail_tmp`.`begindate` AS `begindate`,
         `zn_prom_detail_tmp`.`sdate` AS `sdate`,
-        `zn_prom_detail_tmp`.`totalQty` AS `totalQty`
+        `zn_prom_detail_tmp`.`planQty` AS `planQty`
     FROM
         `zn_prom_detail_tmp` WHERE zn_prom_detail_tmp.sdate<=today;
 
