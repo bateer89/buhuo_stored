@@ -1,6 +1,6 @@
 BEGIN
 	CALL daily_goods(shopId,thisDay);
-	CALL daily_dms(shopId,thisDay);
+
 	CALL daily_procedure_season(shopId,thisDay);
 	CALL daily_procedure_holiday(shopId,thisDay);
 	CALL daily_procedure_daily(shopId,thisDay);

@@ -1,0 +1,3 @@
+BEGIN
+	CALL daily_dms(shopId,thisDay);
+END
