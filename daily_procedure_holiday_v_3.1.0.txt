@@ -48,7 +48,7 @@ SET a.flag=CASE WHEN (a.manual_flag=1 AND a.planqty=0.0) THEN 0
 #a1.更新zn_goods表qty、flag、sdate字段
 UPDATE zn_goods a,zn_prom_detail b
 SET a.qty=b.planqty,
-a.flag=1,
+a.flag=6,
 a.sdate=today
 WHERE a.shopid=shopId AND b.shopid=shopId AND
 a.goodsid=b.goodsid AND b.manual_flag=1 AND b.flag=0 AND b.planqty>0;
@@ -132,30 +132,31 @@ CASE WHEN weekflag=1 THEN 4
 FROM zn_goods,zn_config,zn_prom_detail
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND 
 zn_prom_detail.shopid=shopId AND zn_goods.goodsid=zn_prom_detail.goodsid AND 
-zn_prom_detail.flag=0;
+zn_prom_detail.manual_flag=0 and zn_prom_detail.flag=0;
 
 # b. 取出日均销量：
 #--根据促销价格到zn_price_dms取出这些促销品对应的dms, 转c
 UPDATE tmp_prom_tmp x,zn_price_dms y
 SET x.dms=y.dms
 WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid AND (x.price/x.normalprice)>=y.disc1 AND 
-(x.price/x.normalprice)<y.disc2;
+x.goodsid=y.goodsid AND (x.price/x.normalprice)*100>=y.disc1 AND 
+(x.price/x.normalprice)*100<y.disc2;
 
-#--如果在zn_price_dms中未找到对应的dms则根据这只单品的定价和取到的促销售价算出促销价所处的折扣段,再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转c
+#--如果在zn_price_dms中未找到对应的dms则根据这只单品的定价和取到的促销售价算出促销价所处的折扣段,
+#再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。
+#日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转c
 
 UPDATE tmp_prom_tmp x,zn_xl_dms y,v_goods z
 SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
 WHERE x.shopid=shopId AND y.shopid=shopId AND
 ISNULL(x.dms) AND x.goodsid=z.goodsid AND y.xlid=z.deptid AND 
-(x.price/x.normalprice)<y.disc2 AND
- (x.price/x.normalprice)>=disc1;
+(x.price/x.normalprice)*100<y.disc2 AND
+ (x.price/x.normalprice)*100>=disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
 UPDATE zn_goods x,tmp_prom_tmp y
-SET x.flag=2 WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid AND ISNULL(y.dms) ;
-
+SET x.flag=4 WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and ISNULL(y.dms) ;
+delete from tmp_prom_tmp where dms is null;
 
 
 ##  Todo:更新首次补货记录?
@@ -167,10 +168,11 @@ x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 #春节期间日均销量==b取到的日均销量*zs*rate
 UPDATE tmp_prom_tmp x 
 SET x.dms=x.dms*x.zs*x.ho_rate
-WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND
+WHERE x.holidaytype=2 AND date_add(x.holiday_begindate,interval -6 day)<=today AND
 x.holiday_enddate>today;
 
-#--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=b取到的日均销量*rate1，在period2—enddate对应的日期之内时日均销量=b取到的日均销量*rate2转e
+#--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=b取到的日均销量*rate1，
+#在period2—enddate对应的日期之内时日均销量=b取到的日均销量*rate2转e
 UPDATE tmp_prom_tmp x
 SET x.dms=CASE WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
 (DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period1) 
@@ -218,15 +220,15 @@ ELSE 0 END;
 #h.更新zn_goods表qty、flag、sdate字段;
 #h.更新zn_goods表qty、flag、sdate字段;
 UPDATE zn_goods x,tmp_prom_tmp y
-SET x.flag=y.flag,
+SET x.flag=1,
 x.qty=y.actual_qty,
 x.sdate=today
  WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid AND ISNULL(y.dms) ;
+x.goodsid=y.goodsid;
 
 #在《补货系统促销明细》中为该商品打标“1越期促销补货”或“2可以补货”并更新日期.
 UPDATE zn_prom_detail a,tmp_prom_tmp y
-SET a.flag=y.flag
+SET a.flag=1
 WHERE a.shopid=shopId AND y.shopid=shopId AND
 a.goodsid=y.goodsid AND ISNULL(y.dms);
 

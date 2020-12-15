@@ -136,12 +136,12 @@ UPDATE tmp_daily_tmp x,zn_price_dms y
 SET x.dms=y.dms,
 x.trueprice=y.trueprice
 WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid AND (x.trueprice/x.normalprice)>=y.disc1 AND 
-(x.trueprice/x.normalprice)<y.disc2;
+x.goodsid=y.goodsid AND (x.trueprice/x.normalprice)*100>=y.disc1 AND 
+(x.trueprice/x.normalprice)*100<y.disc2;
 
 #--当前售价=normalprice，未找到对应的dms或dms=0:说明是新品或者没有正常价销售过，zn_goods表flag=2,转s
 UPDATE zn_goods a,tmp_daily_tmp x
-SET a.flag=2 WHERE a.shopid=shopId AND x.shopid=shopId AND
+SET a.flag=5 WHERE a.shopid=shopId AND x.shopid=shopId AND
 a.goodsid=x.goodsid AND (ISNULL(x.dms) OR x.dms=0.0) AND 
 x.trueprice=x.normalprice;
 delete from tmp_daily_tmp where ISNULL(dms) OR dms=0 and normalprice=trueprice;
@@ -152,12 +152,12 @@ SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
 WHERE x.shopid=shopId AND y.shopid=shopId AND
 ISNULL(x.dms) AND x.goodsid=z.goodsid AND y.xlid=z.deptid AND 
 x.trueprice<>x.normalprice AND
-(x.price/x.normalprice)<y.disc2 AND
- (x.price/x.normalprice)>=disc1;
+(x.price/x.normalprice)*100<y.disc2 AND
+ (x.price/x.normalprice)*100>=y.disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
 UPDATE zn_goods x,tmp_daily_tmp y
-SET x.flag=2 WHERE x.shopid=shopId AND y.shopid=shopId AND
+SET x.flag=4 WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 delete from tmp_daily_tmp where dms is null;
 
@@ -179,10 +179,10 @@ x.holiday_enddate>today;
 UPDATE tmp_daily_tmp x
 SET x.dms=CASE WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
 (DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period1) 
-DAY)<today THEN x.dms*x.rate1 
+DAY)<today THEN x.dms*x.rate1/100.0 
 							 WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
 (DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period2) 
-DAY)<today THEN x.dms*x.rate2 END
+DAY)<today THEN x.dms*x.rate2/100.0 END
 WHERE x.seasontype=1;
 
 
