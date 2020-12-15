@@ -125,10 +125,10 @@ a.sdate<endOfthisSeason;
 
 ###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存（v_shopstock)
 UPDATE tmp_season_tmp x,3YearsSeasonAverage y
-SET x.theoritical_qty=y.avg*14-x.minstock,
-x.actual_qty=CASE WHEN (y.avg*14-x.minstock<x.minorder) THEN 0.0
-											ELSE (CEILING((y.avg*14-x.minstock)/x.minorder)*x.minorder) END
-WHERE x.shopid=shopId AND y.shopid=shopId AND 
+SET x.theoritical_qty=y.avg*14-x.closeqty,
+x.actual_qty=CASE WHEN (y.avg*14-x.closeqty<x.minorder) THEN 0.0
+											ELSE (CEILING((y.avg*14-x.closeqty)/x.minorder)*x.minorder) END
+WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid;
 
 #理论补货量<最小订货量时不需要补货，否则需要补货。

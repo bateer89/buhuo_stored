@@ -1,0 +1,27 @@
+IN `thisDay` date
+
+BEGIN
+	DECLARE today date;
+
+	SET today=thisDay;
+
+	INSERT INTO zn_prom_detail_tmp(planid,planname,begindate,enddate,
+						shopid,goodsid,price,planqty,manual_flag,sdate)
+	SELECT 
+	#zn_prom_detail.serialid
+	zn_prom_detail.planid,
+	zn_prom_detail.planname,
+	zn_prom_detail.begindate,
+	zn_prom_detail.enddate,
+	zn_prom_detail.shopid,
+	zn_prom_detail.goodsid,
+	zn_prom_detail.price,
+	zn_prom_detail.planqty,
+	zn_prom_detail.manual_flag,
+	today AS sdate
+	FROM zn_prom_detail WHERE zn_prom_detail.enddate<today;
+
+
+	DELETE FROM zn_prom_detail
+	WHERE zn_prom_detail.enddate<today;
+END

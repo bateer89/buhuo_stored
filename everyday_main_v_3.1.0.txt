@@ -13,6 +13,8 @@ BEGIN
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET s=1;
 
 
+	#处理每日将上一日的促销保存到zn_prom_tmp
+	CALL everyday_before_dms(thisday);
 
 	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount FROM v_zn_md_yt_ywq;
     -- 打开游标

@@ -1,0 +1,28 @@
+params：`thisDay` date
+
+return type：varchar(5)
+
+
+BEGIN
+	DECLARE date1 varchar(5);
+	DECLARE date2 varchar(5);
+	DECLARE season_starts_date date;
+	DECLARE season_finish_date date;
+	DECLARE season_starts varchar(5);
+	DECLARE season_finish varchar(5);
+
+
+	SET date1=(SELECT x.begindate FROM zn_season_goods x LIMIT 1);
+	SET date2=(SELECT x.enddate FROM zn_season_goods x LIMIT 1);
+
+	SET season_starts= CASE WHEN date1<date2 THEN date1 ELSE date2 END;
+	SET season_finish= CASE WHEN date1<date2 THEN date2 ELSE date1 END;
+
+	SET season_starts_date=STR_TO_DATE(CONCAT(YEAR(thisDay),'-',season_starts),'%Y-%m-%d');
+	SET season_finish_date=STR_TO_DATE(CONCAT(YEAR(thisDay),'-',season_finish),'%Y-%m-%d');
+
+	RETURN CASE WHEN (season_starts_date<=thisDay AND thisDay<season_finish_date)
+													THEN (SELECT zn_season_xl.begindate FROM zn_season_xl WHERE zn_season_xl.begindate<zn_season_xl.enddate LIMIT 1)
+													ELSE (SELECT zn_season_xl.begindate FROM zn_season_xl WHERE zn_season_xl.begindate>zn_season_xl.enddate LIMIT 1)
+							END;
+END
