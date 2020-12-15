@@ -1,0 +1,19 @@
+params：`orderdate` varchar(8),`thisDay` date
+
+return value int(11)
+
+BEGIN
+	/*返回当前日期对应的补货日天数   
+	*/
+
+	DECLARE thisDayofweek int;
+	DECLARE tmpsequence char(255);
+	DECLARE it int;
+
+	SET thisDayofweek=(dayofweek(thisday)+5)mod 7+1;
+	SET tmpsequence=CONCAT(orderdate,orderdate);
+	SET it=LOCATE('1001',tmpsequence);
+	IF (thisDayofweek>=it AND thisDayofweek<it+3) THEN RETURN 3;
+	ELSE RETURN 4;
+	END IF;
+END

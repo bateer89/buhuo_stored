@@ -108,25 +108,26 @@ zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate,
-CASE WHEN weekflag=1 THEN 4 
-							WHEN weekflag=2 THEN 14
-							WHEN weekflag=3 THEN 21 ELSE 0 END AS weekflag_days
+CASE WHEN weekflag=1 THEN get_next_buhuo_days(zn_config.Orderdate,today) 
+							WHEN weekflag=2 THEN 7
+							WHEN weekflag=3 THEN 14 ELSE 0 END AS weekflag_days
 FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND
-zn_goods.flag=0 AND
-SUBSTR(orderdate,(dayofweek(DATE_ADD(thisDate,INTERVAL 5 DAY)))MOD 7+1,1)='1' ;
+zn_goods.flag=0 AND zn_goods.classtype=zn_config.Classtype AND
+SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' ;
 
 
 #k.取出商品在到货时的售价：到《补货系统促销明细》zn_prom_detail中
 #找到flag=“2可以补货”的商品并取出促销售价，当前日期+到货周期>促销结束日期时应该取商品的正常售价；
-#如果未找到则用zn_goods表中的正常售价normalprice.
 UPDATE tmp_daily_tmp x,zn_prom_detail y
 SET x.trueprice=y.price
 WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND
-y.flag=2;
+DATE_ADD(today,INTERVAL x.arrivaldays DAY)<y.enddate AND y.flag=2;  
+
+#如果未找到则用zn_goods表中的正常售价normalprice.
 UPDATE tmp_daily_tmp x
 SET x.trueprice=x.normalprice
-WHERE NOT ISNULL(x.trueprice);
+WHERE ISNULL(x.trueprice);
 
 
 # m. 取出日均销量：
@@ -143,7 +144,7 @@ UPDATE zn_goods a,tmp_daily_tmp x
 SET a.flag=2 WHERE a.shopid=shopId AND x.shopid=shopId AND
 a.goodsid=x.goodsid AND (ISNULL(x.dms) OR x.dms=0.0) AND 
 x.trueprice=x.normalprice;
-
+delete from tmp_daily_tmp where ISNULL(dms) OR dms=0 and normalprice=trueprice;
 #--当前售价<>normalprice,未找到对应的dms:则根据这只单品的定价和取到的促销售价算出促销价所处的折扣段,再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转n
 
 UPDATE tmp_daily_tmp x,zn_xl_dms y,v_goods z
@@ -158,6 +159,7 @@ x.trueprice<>x.normalprice AND
 UPDATE zn_goods x,tmp_daily_tmp y
 SET x.flag=2 WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
+delete from tmp_daily_tmp where dms is null;
 
 
 
@@ -219,19 +221,21 @@ ELSE 0 END;
 
 #r.更新zn_prom_detail商品状态：zn_goods表中flag=0并且今天是补货日商品但是在《补货系统促销明细》zn_prom_detail中flag=“1越期促销补货”的商品改为flag=‘2可以补货’并更新日期
 
-UPDATE zn_prom_detail x, zn_goods y
+UPDATE zn_prom_detail x, zn_goods y,tmp_daily_tmp z
 SET x.flag=2 
-WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND
-x.flag=1 AND y.flag=0;
+WHERE x.shopid=shopId AND y.shopid=shopId AND z.shopid=shopId
+AND x.goodsid=y.goodsid AND x.goodsid=z.goodsid AND
+x.flag=1 AND y.flag=0 AND
+SUBSTR(z.orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1';  
 
 
 #s.更新zn_goods表qty、flag、sdate字段;
 UPDATE zn_goods x,tmp_daily_tmp y
-SET x.flag=y.flag,
+SET x.flag=1,
 x.qty=y.actual_qty,
 x.sdate=today
  WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid AND ISNULL(y.dms) ;
+x.goodsid=y.goodsid;
 
 
 
