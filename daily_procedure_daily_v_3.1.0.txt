@@ -108,13 +108,14 @@ zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate,
-CASE WHEN weekflag=1 THEN get_next_buhuo_days(zn_config.Orderdate,today) 
-							WHEN weekflag=2 THEN 7
-							WHEN weekflag=3 THEN 14 ELSE 0 END AS weekflag_days
+CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo_days(zn_config.Orderdate,today) 
+							WHEN (weekflag=1 AND zn_config.Classtype='B') THEN 7
+							WHEN weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
 FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND
 zn_goods.flag=0 AND zn_goods.classtype=zn_config.Classtype AND
-SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' ;
+SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
+IF(zn_config.Weekflag=2,zn_config.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);
 
 
 #k.取出商品在到货时的售价：到《补货系统促销明细》zn_prom_detail中

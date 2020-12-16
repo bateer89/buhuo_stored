@@ -126,9 +126,9 @@ zn_prom_detail.price AS price,
 zn_prom_detail.planqty AS planqty,
 zn_prom_detail.flag AS flag,
 zn_prom_detail.manual_flag AS manual_flag,
-CASE WHEN weekflag=1 THEN 4 
-							WHEN weekflag=2 THEN 14
-							WHEN weekflag=3 THEN 21 ELSE 0 END AS weekflag_days
+CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo_days(zn_config.Orderdate,today) 
+							WHEN (weekflag=1 AND zn_config.Classtype='B') THEN 7
+							WHEN weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
 FROM zn_goods,zn_config,zn_prom_detail
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND 
 zn_prom_detail.shopid=shopId AND zn_goods.goodsid=zn_prom_detail.goodsid AND 
@@ -176,10 +176,10 @@ x.holiday_enddate>today;
 UPDATE tmp_prom_tmp x
 SET x.dms=CASE WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
 (DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period1) 
-DAY)<today THEN x.dms*x.rate1 
+DAY)<today THEN x.dms*x.rate1/100.0 
 							 WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
 (DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period2) 
-DAY)<today THEN x.dms*x.rate2 END
+DAY)<today THEN x.dms*x.rate2/100.0 END
 WHERE x.seasontype=1;
 
 
