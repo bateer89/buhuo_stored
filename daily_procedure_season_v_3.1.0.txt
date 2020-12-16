@@ -123,7 +123,7 @@ WHERE a.shopid=shopId AND b.shopid=shopId AND
 a.goodsid=b.goodsid AND a.sdate>=beginOfthisSeason AND 
 a.sdate<endOfthisSeason;
 
-###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存（v_shopstock)
+###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存
 UPDATE tmp_season_tmp x,3YearsSeasonAverage y
 SET x.theoritical_qty=y.avg*14-x.closeqty,
 x.actual_qty=CASE WHEN (y.avg*14-x.closeqty<x.minorder) THEN 0.0
@@ -132,22 +132,23 @@ WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid;
 
 #理论补货量<最小订货量时不需要补货，否则需要补货。
-
-DELETE FROM tmp_season_tmp 
-WHERE tmp_season_tmp.theoritical_qty<tmp_season_tmp.minorder;
-
-
 #更新zn_goods表qty、flag、sdate字段;qty dec（16，3）default  0 ---计算生成的补货数量
 #flag  char(1)   默认0 ，0—未处理，1---已补货，2---人工补货，3—季节性商品首次补货后在到货之前不在补货。
 UPDATE zn_goods a,tmp_season_tmp b 
 SET 
-a.qty=b.actual_qty,
+a.qty=b.actual_qty
+WHERE a.shopid=shopId AND b.shopid=shopId AND
+a.goodsid=b.goodsid AND b.theoritical_qty<b.minorder; 
+
+UPDATE zn_goods a,tmp_season_tmp b 
+SET 
 a.flag=1,
 a.sdate=today
 WHERE a.shopid=shopId AND b.shopid=shopId AND
-a.goodsid=b.goodsid; 
-
+a.goodsid=b.goodsid;
 
 #更新zn_season_across表字段
+/*
 
+*/
 END

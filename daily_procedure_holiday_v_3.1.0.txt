@@ -48,7 +48,7 @@ SET a.flag=CASE WHEN (a.manual_flag=1 AND a.planqty=0.0) THEN 0
 #a1.更新zn_goods表qty、flag、sdate字段
 UPDATE zn_goods a,zn_prom_detail b
 SET a.qty=b.planqty,
-a.flag=6,
+a.flag=3,
 a.sdate=today
 WHERE a.shopid=shopId AND b.shopid=shopId AND
 a.goodsid=b.goodsid AND b.manual_flag=1 AND b.flag=0 AND b.planqty>0;
@@ -127,12 +127,16 @@ zn_prom_detail.planqty AS planqty,
 zn_prom_detail.flag AS flag,
 zn_prom_detail.manual_flag AS manual_flag,
 CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo_days(zn_config.Orderdate,today) 
-							WHEN (weekflag=1 AND zn_config.Classtype='B') THEN 7
-							WHEN weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
+							WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='B') THEN 7
+							WHEN zn_config.Weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
 FROM zn_goods,zn_config,zn_prom_detail
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND 
 zn_prom_detail.shopid=shopId AND zn_goods.goodsid=zn_prom_detail.goodsid AND 
-zn_prom_detail.manual_flag=0 and zn_prom_detail.flag=0;
+zn_prom_detail.manual_flag=0 AND zn_prom_detail.flag=0 AND
+SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
+IF(zn_config.Weekflag=2,zn_config.Startweek mod 2=WEEKOFYEAR(today)mod 2,1) AND  ##判断是否补货日
+DATEDIFF(get_next_buhuo_days(zn_config.Weekflag,zn_config.Orderdate,zn_config.Startweek,today),today)>=4##判断是否越期
+;
 
 # b. 取出日均销量：
 #--根据促销价格到zn_price_dms取出这些促销品对应的dms, 转c

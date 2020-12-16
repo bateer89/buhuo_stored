@@ -1,122 +1,79 @@
-#无参数，分类
-#需要另外建立一个索引
-#ALTER TABLE v_minorder ADD INDEX(shopid);
-
-
 BEGIN
     declare i int;
     declare col int default(0);
     declare tem_shopid VARCHAR(8);
-    drop table if exists tb_classify;
-    drop table if exists get_shopid;
+    DECLARE beforday date;
+    drop table if exists shop_classify;
+    drop table if exists shopid;
+     drop table if exists temp1;
+    SET beforday=date_sub(begindate,interval weeks*7 day);
+   CREATE TABLE  temp1  SELECT * FROM zn_dayly_sales
+    WHERE convert(sdate,char(10))<=convert(begindate,char(10)) AND convert(sdate,char(10))>=convert(beforday,char(10));
 #---------------------------------------------------分类结果表
-    CREATE  TABLE tb_classify(   
+    CREATE  TABLE shop_classify(   
       shopid VARCHAR(8),
       goodsid VARCHAR(32),
+     dms_minorder DECIMAL(16,2),
       classtype CHAR(1)
       );
 
 #---------------------------------------------------将商店的id提取出来，并且加递增id序号
-    CREATE TEMPORARY TABLE get_shopid(
+    CREATE TEMPORARY TABLE shopid(
     shopid VARCHAR(8)
     );
-   INSERT INTO get_shopid
+   INSERT INTO shopid
 #可能需要改的地方，表名----------------------------------------------------------------------------------------------------------------
-   SELECT shopid FROM zn_dayly_sales GROUP BY shopid;#   从shop_1销售数据分类
+   SELECT shopid FROM temp1 GROUP BY shopid;#   从shop_1销售数据分类
 #--------------------------------------------------------------------------------------------------------------------------------------
-   ALTER TABLE get_shopid ADD id INT;
-   alter table get_shopid change id id int not null auto_increment unique;
-
-
-#----------------------------------------------------将行数赋给一个变量,循环对各个商店来进行分类
-    SELECT count(shopid) INTO col FROM get_shopid;
+   ALTER TABLE shopid ADD id INT;
+   alter table shopid change id id int not null auto_increment unique;
+    SELECT count(shopid) INTO col FROM shopid;
     SET i=0; 
          WHILE i<=col DO
     SET @sum:=0; 
 
 
 #----------------------------------------------------将所对应id的商店数据提取出来进行分类。
- SELECT shopid INTO tem_shopid FROM get_shopid WHERE id=i;
-drop table if exists v_sale_shopid;
-CREATE TABLE v_sale_shopid
+ SELECT shopid INTO tem_shopid FROM shopid WHERE id=i;
+drop table if exists v_shopid;
+CREATE TABLE v_shopid
 #可能需要改的地方，表名----------------------------------------------------------------------------------------------------------------
-SELECT * FROM zn_dayly_sales WHERE shopid=tem_shopid;  #   从shop_1销售数据分类
+SELECT * FROM temp1 WHERE shopid=tem_shopid;  #   从shop_1销售数据分类
 #---------------------------------------------------------------------------------------------------------------------------------------
-    drop table if exists v_shop_baifen;
-    drop table if exists v_shop_consum_baifen;
-    drop table if exists v_shop_classifyAB;
-    drop table if exists v_shop_classifyC;
-
-#------------------------------------------------------创建临时表先把单个商品在这段时间总的销售额算出来
-     CREATE TEMPORARY TABLE v_shop_baifen(  
+    drop table if exists v_consumqty;
+    drop table if exists v_classifyAB;
+     CREATE TEMPORARY TABLE v_consumqty(  
       shopid VARCHAR(8),
       goodsid VARCHAR(32),
-      qty DECIMAL(16,3),
-      sum_salevalue DECIMAL(16,2),
-      baifen DECIMAL(16,8)
+      qty DECIMAL(16,3)
       );
-      #在将总的销售额倒序排序累加
-      CREATE TEMPORARY TABLE v_shop_consum_baifen(   
-      shopid VARCHAR(8),
-      goodsid VARCHAR(32),
-      qty DECIMAL(16,3),
-      sum_salevalue DECIMAL(16,2),
-      baifen DECIMAL(16,8),
-      consum_baifen DECIMAL(16,8)
-      );
-     #ALTER TABLE v_shop_baifen  ADD INDEX idx4(shopid,goodsid,baifen);
-     ALTER TABLE v_shop_consum_baifen  ADD INDEX idx2(shopid,goodsid,sum_salevalue,baifen,consum_baifen);
-     INSERT INTO v_shop_baifen 
-     SELECT shopid,goodsid,SUM(qty) AS qty,SUM(salevalue) AS sum_salevalue,SUM(salevalue)/(SELECT SUM(salevalue) FROM v_sale_shopid) AS baifen
-     FROM v_sale_shopid    GROUP BY shopid,goodsid ORDER BY sum_salevalue DESC ;
-     INSERT INTO v_shop_consum_baifen
-     SELECT shopid,goodsid,qty,sum_salevalue ,baifen,(@sum:=@sum+baifen) AS consum_baifen FROM v_shop_baifen
-     GROUP BY shopid,goodsid,qty,sum_salevalue,baifen ORDER BY sum_salevalue DESC ;
+     INSERT INTO v_consumqty 
+     SELECT shopid,goodsid,SUM(qty) AS qty FROM v_shopid  GROUP BY shopid,goodsid;
+    ALTER TABLE v_consumqty  ADD INDEX(shopid,goodsid);
 #---------------------------------------------------------------------------------------------------------------
      #创建临时表，将提取出来的A,B类总体数据进行添加标签
-     CREATE TEMPORARY TABLE v_shop_classifyAB(   
+     CREATE TEMPORARY TABLE v_classifyAB(   
       shopid VARCHAR(8),
       goodsid VARCHAR(32),
-      dms_minorder DECIMAL(16,2),
-      sum_salevalue DECIMAL(16,2),
-      baifen DECIMAL(16,8),
-      consum_baifen DECIMAL(16,8)
+      dms_minorder DECIMAL(16,2)
       );
-     INSERT INTO v_shop_classifyAB
+     INSERT INTO v_classifyAB
      #次数14天可以设置变量接收
-     SELECT a.shopid,a.goodsid,(b.minorderqty/(a.qty/14)) as dms_minorder,a.sum_salevalue ,a.baifen,a.consum_baifen FROM v_shop_consum_baifen a INNER JOIN v_minorder b
-     ON a.shopid=b.shopid AND a.goodsid=b.goodsid AND consum_baifen<0.7 AND a.qty>0 ;
-     ALTER TABLE v_shop_classifyAB ADD classtype CHAR(1);
-     UPDATE v_shop_classifyAB SET classtype=CASE WHEN dms_minorder<=4 THEN 'A' ELSE 'B' END;
-
-     #将不是A,B类的商品定义为c类
-     CREATE TEMPORARY TABLE v_shop_classifyC(   
-      shopid VARCHAR(8),
-      goodsid VARCHAR(32),
-      sum_salevalue DECIMAL(16,2),
-      baifen DECIMAL(16,8),
-      consum_baifen DECIMAL(16,8)
-      );
-     DELETE FROM v_shop_consum_baifen WHERE goodsid in (SELECT goodsid from v_shop_classifyAB);
-     INSERT INTO v_shop_classifyC
-     SELECT shopid,goodsid,sum_salevalue,baifen,consum_baifen FROM v_shop_consum_baifen;
-     #次数14天可以设置变量接收
-     
-     ALTER TABLE v_shop_classifyC ADD classtype CHAR(1);
-     UPDATE v_shop_classifyC SET classtype='C';
-     ALTER TABLE v_shop_classifyAB  ADD INDEX idx3(shopid,goodsid,classtype);
-      ALTER TABLE v_shop_classifyC  ADD INDEX idx4(shopid,goodsid,classtype);
+     SELECT a.shopid,a.goodsid,(CASE WHEN a.qty=0 THEN 0 else (b.minorderqty/(a.qty/(weeks*7))) END) as dms_minorder FROM v_consumqty 
+ a INNER JOIN v_minorder b ON a.shopid=b.shopid AND a.goodsid=b.goodsid;
+   ALTER TABLE v_classifyAB ADD classtype CHAR(1);
+  UPDATE v_classifyAB a join zn_config b ON a.shopid=b.shopid AND b.classtype='B'
+    SET a.classtype='B'   WHERE a.dms_minorder<=b.Minorderdays ;
+   UPDATE v_classifyAB SET classtype='A' WHERE dms_minorder<=4;
+     ALTER TABLE v_classifyAB  ADD INDEX idx3(shopid,goodsid,dms_minorder,classtype);
     #将最后的分类生成最后的表
-     INSERT INTO tb_classify
-     SELECT shopid,goodsid,classtype FROM v_shop_classifyAB;
-     INSERT INTO tb_classify
-     SELECT shopid,goodsid,classtype FROM v_shop_classifyC;
-
+     INSERT INTO shop_classify
+     SELECT shopid,goodsid,dms_minorder,classtype FROM v_classifyAB;
 
      set i=i+1;
       SET @sum:=0; 
       END WHILE;
-DELETE  tb_classify FROM  tb_classify, v_tgoods WHERE  tb_classify.shopid=v_tgoods.shopid and tb_classify.goodsid=v_tgoods.goodsid;
-DROP TABLE v_sale_shopid; 
-
+DELETE  shop_classify FROM  shop_classify, v_tgoods WHERE  shop_classify.goodsid=v_tgoods.goodsid;
+DROP TABLE v_shopid; 
+delete  from shop_classify where classtype is null;
 END

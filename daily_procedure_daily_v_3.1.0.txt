@@ -118,12 +118,13 @@ SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
 IF(zn_config.Weekflag=2,zn_config.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);
 
 
+
 #k.取出商品在到货时的售价：到《补货系统促销明细》zn_prom_detail中
 #找到flag=“2可以补货”的商品并取出促销售价，当前日期+到货周期>促销结束日期时应该取商品的正常售价；
 UPDATE tmp_daily_tmp x,zn_prom_detail y
 SET x.trueprice=y.price
 WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND
-DATE_ADD(today,INTERVAL x.arrivaldays DAY)<y.enddate AND y.flag=2;  
+DATE_ADD(today,INTERVAL x.arrivaldays DAY)<y.enddate AND y.flag=2;
 
 #如果未找到则用zn_goods表中的正常售价normalprice.
 UPDATE tmp_daily_tmp x
