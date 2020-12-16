@@ -1,0 +1,28 @@
+params：`weekflag` varchar(1),`orderdate` varchar(8),`startweek` int(1),`thisDay` date
+
+return：date
+
+BEGIN
+/*返回从thisDay开始下一个最接近的补货日*/
+	DECLARE startweek_int INT;#解决开始周为null的情况
+	DECLARE weekflag_int INT;
+	DECLARE thisDayofweek INT;
+	DECLARE num INT DEFAULT 0;
+	DECLARE ordersequence varchar(16);
+
+	SET startweek_int=CASE WHEN ISNULL(startweek) THEN 0 
+													ELSE startweek END;
+	SET thisDayofweek=(dayofweek(thisDay)+5)mod 7+1;
+	SET weekflag_int=weekflag+0;
+	SET ordersequence=CONCAT(orderdate,orderdate);
+
+	WHILE SUBSTR(ordersequence,thisDayofweek,1)<>'1' DO
+		SET num=num+1;
+		SET thisDayofweek=thisDayofweek+1;
+	END WHILE;
+
+	SET num=num MOD 7;
+	SET num=num+((startweek_int+weekflag_int-(WEEKOFYEAR(thisDay) MOD weekflag_int)) MOD weekflag_int)*7;
+	
+	RETURN DATE_ADD(thisDay,INTERVAL num DAY);
+END
