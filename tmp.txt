@@ -1,14 +1,18 @@
-
-CREATE TABLE tmp_prom_spring_tmp AS
-SELECT * FROM tmp_prom_tmp x
+CREATE TABLE tmp_daily_spring_tmp AS
+SELECT * FROM tmp_daily_tmp x
 WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND
 x.holiday_enddate>today;
 
 #F3:B、C类商品按照A类商品的规则补货：当前日期>=begindate-6 按照A类订货周期订货
-UPDATE tmp_prom_spring_tmp x,zn_config y
+UPDATE tmp_daily_spring_tmp x,zn_config y
 SET x.orderdate=y.Orderdate,
 x.weekflag=y.Weekflag,
 x.safedays=y.Safedays,
-x.arrivaldays=y.Arrivaldays
-WHERE x.shopid=shopId AND y.shopid=shopId AND 
-(x.classtype='B' OR x.classtype='c') AND y.classtype='A';
+x.arrivaldays=y.Arrivaldays,
+x.weekflag_days=CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo_days(zn_config.Orderdate,today) 
+										 WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='B') THEN 7
+										 WHEN zn_config.Weekflag=2 THEN 14 ELSE 0 END
+WHERE x.shopid=shopId AND y.shopid=shopId AND
+(x.classtype='B' OR x.classtype='C') AND y.classtype='A';
+
+
