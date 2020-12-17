@@ -132,11 +132,18 @@ DATEDIFF(get_next_buhuo_date(weekflag,zn_config.Orderdate,zn_config.Startweek,to
 FROM zn_goods,zn_config,zn_prom_detail
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND 
 zn_prom_detail.shopid=shopId AND zn_goods.goodsid=zn_prom_detail.goodsid AND 
-zn_prom_detail.manual_flag=0 AND zn_prom_detail.flag=0
+zn_prom_detail.manual_flag=0 AND zn_prom_detail.flag=0 AND
+zn_goods.classtype=zn_config.Classtype
 ;
 
+#历史库存为空改为0
+UPDATE zn_goods 
+SET zn_goods.closeqty=0.0
+WHERE ISNULL(zn_goods.closeqty);
+
+
 ##更新越期商品的补货周期天数
-update tmp_prom_tmp a join zn_config b on a.shopid=shopid and b.shopid=shopid 
+update tmp_prom_tmp a join zn_config b on a.shopid=shopid and b.shopid=shopid and a.classtype=b.Classtype
 set weekflag_days=datediff(get_next_buhuo_date(b.Weekflag,b.Orderdate,b.Startweek,date_add(today,interval weekflag_days+1 day)),today)
 where DATEDIFF(get_next_buhuo_date(b.Weekflag,b.Orderdate,b.Startweek,today),today)<4;
 
@@ -243,6 +250,7 @@ a.goodsid=y.goodsid;
 UPDATE zn_prom_detail a,tmp_prom_tmp y,zn_config z
 SET a.flag=1
 WHERE a.shopid=shopId AND y.shopid=shopId AND
-a.goodsid=y.goodsid AND z.shopid=shopId and DATEDIFF(get_next_buhuo_date(z.Weekflag,z.Orderdate,z.Startweek,today),today)<4;
+a.goodsid=y.goodsid and z.shopid=shopId and y.classtype=z.Classtype and DATEDIFF(get_next_buhuo_date(z.weekflag,z.Orderdate,z.Startweek,today),today)<4
+;
 
 END
