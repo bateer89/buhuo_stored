@@ -16,12 +16,15 @@ BEGIN
 	SET weekflag_int=weekflag+0;
 	SET ordersequence=CONCAT(orderdate,orderdate);
 
+	SET num=num+1;#当天返回下次
+	SET thisDayofweek=thisDayofweek+1;#当天返回下次
+
 	WHILE SUBSTR(ordersequence,thisDayofweek,1)<>'1' DO
 		SET num=num+1;
 		SET thisDayofweek=thisDayofweek+1;
 	END WHILE;
 
-	SET num=num MOD 7;
+	SET num=(num-1) MOD 7+1;
 	SET num=num+((startweek_int+weekflag_int-(WEEKOFYEAR(thisDay) MOD weekflag_int)) MOD weekflag_int)*7;
 	
 	RETURN DATE_ADD(thisDay,INTERVAL num DAY);
