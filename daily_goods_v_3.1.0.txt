@@ -134,7 +134,8 @@ today<zn_season_across.nextdate;
 
 #closeqty 赋值
 UPDATE zn_goods a, v_shopsstock b
-SET a.closeqty=b.qty
+SET a.closeqty=CASE WHEN ISNULL(b.qty) THEN 0.0
+										ELSE b.qty END
 WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
 
 
