@@ -180,5 +180,8 @@ zn_price_dms.dms=VALUES(dms),
 zn_price_dms.sdate=now();
 
 
-
+update (SELECT * FROM zn_xl_dms WHERE zn_xl_dms.disc1=95) a RIGHT JOIN zn_xl_dms b 
+on a.xlid=b.xlid AND a.shopid=b.shopid
+SET b.dms_ori=a.dms_disc
+WHERE b.disc1<>95 AND b.shopid=shopid;
 END
