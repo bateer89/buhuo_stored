@@ -137,6 +137,7 @@ UPDATE zn_goods a, v_shopsstock b
 SET a.closeqty=CASE WHEN ISNULL(b.qty) THEN 0.0
 										ELSE b.qty END
 WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
-
+##删除负库存
+##delete from zn_goods where closeqty<0;
 
 END
