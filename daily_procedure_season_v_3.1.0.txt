@@ -142,13 +142,30 @@ a.goodsid=b.goodsid AND b.theoritical_qty<b.minorder;
 
 UPDATE zn_goods a,tmp_season_tmp b 
 SET 
-a.flag=1,
+a.flag=8,
 a.sdate=today
 WHERE a.shopid=shopId AND b.shopid=shopId AND
 a.goodsid=b.goodsid;
 
 #更新zn_season_across表字段
-/*
+INSERT INTO zn_season_across(shopid,goodsid,firstdate,nextdate,begindate,sdate)
+SELECT 
+a.shopid AS shopid,
+a.goodsid AS goodsid,
+thisday AS firstdate,
+date_add(thisday,interval arrivaldays+1 day) AS nextdate,
+b.enddate AS begindate,
+thisday as sdate
+FROM tmp_season_tmp a join zn_season_goods b on a.shopid=b.shopid and a.goodsid=b.goodsid
+ON DUPLICATE KEY UPDATE
+zn_season_across.shopid=VALUES(shopid),
+zn_season_across.goodsid=VALUES(goodsid),
+zn_season_across.firstdate=VALUES(firstdate),
+zn_season_across.nextdate=VALUES(nextdate),
+zn_season_across.begindate=VALUES(begindate),
+zn_season_across.sdate=VALUES(sdate);
 
-*/
+update zn_goods a join zn_season_across b on a.shopid=shopid and b.shopid=shopid and a.goodsid=b.goodsid
+set a.flag=3 where thisday<b.nextdate;
+
 END
