@@ -3,47 +3,29 @@ CREATE DEFINER = `root`@`%` PROCEDURE `everyday_goods_2_his`(IN `thisday` date)
 
 
 BEGIN
-			INSERT INTO zn_goods_his(  shopid,
-  xlid,
-  goodsid,
-  classtype,
-  normalprice,
-  minstock ,
-  minorder ,
-  closeqty ,
-  qty ,manual_qty,
-  flag ,
-  sdate,
-  holiday_begindate ,
-  seasontype ,
-  holidaytype ,
-  holiday_enddate ,
-  rate ,
-  aweek ,
-  arrdate ,zs ,ho_rate)
-			SELECT 
-        x.shopid AS shopid,
-        x.xlid AS xlid,
-        x.goodsid AS goodsid,
-        x.classtype AS classtype,
-        x.normalprice AS normalprice,
-        x.minstock AS minstock,
-        x.minorder AS minorder,
-        x.closeqty AS closeqty,
-        x.qty AS qty,
-        x.manual_qty AS manual_qty,
-        x.flag AS flag,
-        x.sdate AS sdate,
-        x.holiday_begindate AS holiday_begindate,
-        x.seasontype AS seasontype,
-        x.holidaytype AS holidaytype,
-        x.holiday_enddate AS holiday_enddate,
-        x.rate AS rate,
-        x.aweek AS aweek,
-        x.arrdate AS arrdate,
-        x.zs AS zs,
-        x.ho_rate AS ho_rate
-			FROM
-        zn_goods x 
-			WHERE x.sdate=thisday;
+
+INSERT INTO zn_goods_his( shopid, xlid, goodsid, classtype, normalprice, minstock , minorder , closeqty , qty ,manual_qty, flag , sdate, holiday_begindate , seasontype , holidaytype , holiday_enddate , rate , aweek , arrdate ,zs ,ho_rate)
+SELECT  x.shopid            AS shopid
+       ,x.xlid              AS xlid
+       ,x.goodsid           AS goodsid
+       ,x.classtype         AS classtype
+       ,x.normalprice       AS normalprice
+       ,x.minstock          AS minstock
+       ,x.minorder          AS minorder
+       ,x.closeqty          AS closeqty
+       ,x.qty               AS qty
+       ,x.manual_qty        AS manual_qty
+       ,x.flag              AS flag
+       ,x.sdate             AS sdate
+       ,x.holiday_begindate AS holiday_begindate
+       ,x.seasontype        AS seasontype
+       ,x.holidaytype       AS holidaytype
+       ,x.holiday_enddate   AS holiday_enddate
+       ,x.rate              AS rate
+       ,x.aweek             AS aweek
+       ,x.arrdate           AS arrdate
+       ,x.zs                AS zs
+       ,x.ho_rate           AS ho_rate
+FROM zn_goods x
+WHERE x.sdate=thisday; 
 END
