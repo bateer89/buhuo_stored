@@ -41,19 +41,19 @@ SET endOfthisSeason=str_to_date(endOfthisSeasonvachar,'%Y-%m-%d');
 # a0.《补货系统促销明细》中manual_flag=1的商品:补货数量=采购分货数量 
 #--如果 采购分货数量=0则  《补货系统促销明细》 flag=0  保持不变并更新日期。
 #--如果采购分货数量>0 则 在《补货系统促销明细》中为该商品打标“1越期促销补货” 并更新日期.
-UPDATE zn_prom_detail a
-SET a.flag=CASE WHEN (a.planqty=0.0) THEN 0 
-								WHEN (a.planqty>0.0) THEN 1 end
-where a.manual_flag=1;
-
 #a1.更新zn_goods表qty、flag、sdate字段
 UPDATE zn_goods a,zn_prom_detail b
 SET a.qty=b.planqty,
-a.flag=3,
+a.flag=6,
 a.sdate=today
 WHERE a.shopid=shopId AND b.shopid=shopId AND
-a.goodsid=b.goodsid AND b.manual_flag=1 AND b.flag=0 AND b.planqty>0;
+a.goodsid=b.goodsid AND b.manual_flag=1 AND b.flag=0 and b.planqty>0;
 
+UPDATE zn_prom_detail a
+SET a.flag=CASE WHEN (a.planqty=0.0) THEN 0 
+								WHEN (a.planqty>0.0) THEN 3 end,
+		a.sdate=today
+where a.manual_flag=1 and a.flag=0;
 
 #a. 《补货系统促销明细》中manual_flag=0的商品:取出补货类别：到zn_goods中取classtype、minorder、minstock、closeqty等，根据补货类别可以取出补货周期、安全库存天数、到货周期。
 CREATE TABLE IF NOT EXISTS `tmp_prom_tmp` (
@@ -136,11 +136,6 @@ zn_prom_detail.manual_flag=0 AND zn_prom_detail.flag=0 AND
 zn_goods.classtype=zn_config.Classtype
 ;
 
-#历史库存为空改为0
-UPDATE zn_goods 
-SET zn_goods.closeqty=0.0
-WHERE ISNULL(zn_goods.closeqty);
-
 
 ##更新越期商品的补货周期天数
 update tmp_prom_tmp a join zn_config b on a.shopid=shopid and b.shopid=shopid and a.classtype=b.Classtype
@@ -164,13 +159,14 @@ SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
 WHERE x.shopid=shopId AND y.shopid=shopId AND
 ISNULL(x.dms) AND x.xlid=y.xlid AND 
 (x.price/x.normalprice)*100<y.disc2 AND
- (x.price/x.normalprice)*100>=disc1;
+ (x.price/x.normalprice)*100>=y.disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
 UPDATE zn_goods x,tmp_prom_tmp y
 SET x.flag=4 WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and ISNULL(y.dms) ;
 UPDATE zn_prom_detail a,tmp_prom_tmp y
-SET a.flag=2
+SET a.flag=2,
+		a.sdate=today
 WHERE a.shopid=shopId AND y.shopid=shopId AND a.goodsid=y.goodsid and ISNULL(y.dms);
 delete from tmp_prom_tmp where dms is null;
 
@@ -236,7 +232,7 @@ ELSE 0 END;
 #h.更新zn_goods表qty、flag、sdate字段;
 #h.更新zn_goods表qty、flag、sdate字段;
 UPDATE zn_goods x,tmp_prom_tmp y
-SET x.flag=1,
+SET x.flag=9,
 x.qty=y.actual_qty,
 x.sdate=today
  WHERE x.shopid=shopId AND y.shopid=shopId AND
@@ -244,11 +240,13 @@ x.goodsid=y.goodsid;
 
 #在《补货系统促销明细》中为该商品打标“1越期促销补货”或“2可以补货”并更新日期.
 UPDATE zn_prom_detail a,tmp_prom_tmp y
-SET a.flag=2
+SET a.flag=2,
+		a.sdate=today
 WHERE a.shopid=shopId AND y.shopid=shopId AND
 a.goodsid=y.goodsid;
 UPDATE zn_prom_detail a,tmp_prom_tmp y,zn_config z
-SET a.flag=1
+SET a.flag=1,
+		a.sdate=today
 WHERE a.shopid=shopId AND y.shopid=shopId AND
 a.goodsid=y.goodsid and z.shopid=shopId and y.classtype=z.Classtype and DATEDIFF(get_next_buhuo_date(z.weekflag,z.Orderdate,z.Startweek,today),today)<4
 ;
