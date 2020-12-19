@@ -48,6 +48,7 @@ SET 3MonthEarlier=DATE_add(today,INTERVAL 30 DAY);
 # 	Step1 取出zn_goods表中seasontype=1的商品及classtype、minorder、
 # minstock、closeqty、arrdate等，根据补货类别可以取出补货周期、
 #	安全库存天数、到货周期。
+drop table if exists tmp_season_tmp;
 CREATE TABLE IF NOT EXISTS `tmp_season_tmp` (
   `goodsid` varchar(32) CHARACTER SET utf8mb4 DEFAULT NULL COMMENT '商品编码',
   `shopid` varchar(8) CHARACTER SET utf8mb4 DEFAULT NULL COMMENT '门店编码',
@@ -61,6 +62,7 @@ CREATE TABLE IF NOT EXISTS `tmp_season_tmp` (
   `sdate` datetime DEFAULT NULL COMMENT '更新日期时间',
   `theoritical_qty` decimal(16,2) DEFAULT NULL,
   `actual_qty` decimal(16,2) DEFAULT NULL,
+   avg_qty_day decimal(16,2) DEFAULT NULL,
   KEY `index_1` (`goodsid`,`shopid`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -81,15 +83,14 @@ zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate
 FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND zn_goods.classtype=zn_config.Classtype AND
-zn_goods.seasontype=1;
-
+zn_goods.seasontype=1 and zn_goods.flag=0;
 
 # 		Step2 满足以下2个条件进行季节性商品首次季节补货：
 #1：季节性商品季节开始日期>当前日期>季节性商品季节开始日期-30天
-DELETE tmp_season_tmp FROM tmp_season_tmp,zn_season_goods 
-		WHERE tmp_season_tmp.shopid=shopId AND zn_season_goods.shopid=shopId AND 
-		tmp_season_tmp.goodsid=zn_season_goods.goodsid AND 
-		NOT (zn_season_goods.begindate>DATE_FORMAT(today,'%m-%d') AND zn_season_goods.begindate<DATE_FORMAT(3MonthEarlier,'%m-%d'));
+DELETE tmp_season_tmp FROM tmp_season_tmp,zn_season_goods
+		WHERE tmp_season_tmp.shopid=shopId AND zn_season_goods.shopid=shopId AND
+		tmp_season_tmp.goodsid=zn_season_goods.goodsid AND
+		NOT (zn_season_goods.begindate>DATE_FORMAT(today,'%m-%d') AND DATE_ADD(concat(year(today),'-',zn_season_goods.begindate),INTERVAL -30 day)<today);
 
 
 #2：没有进行过首次补货：zn_season_across没有这条商品记录
@@ -98,38 +99,12 @@ WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid;
 
 #			Step3 确定首次补货量：
-
-
-#实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
-
-
-###Step3-1  求前一年季节期间日销量的平均值
-CREATE TABLE IF NOT EXISTS `3yearsseasonaverage` (
-  `goodsid` varchar(32) DEFAULT NULL COMMENT '商品编码',
-  `shopid` varchar(8) DEFAULT NULL COMMENT '门店编码',
-  `avg` decimal(20,6) DEFAULT NULL,
-  KEY `idx_3yearsseasonaverage_goodsid` (`goodsid`),
-  KEY `idx_3yearsseasonaverage_shopid` (`shopid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-TRUNCATE TABLE 3YearsSeasonAverage;
-
-INSERT INTO 3YearsSeasonAverage (goodsid,shopid,avg)
-SELECT 
-a.goodsid,
-a.shopid,
-AVG(a.qty) AS avg
-FROM zn_dayly_sales a,tmp_season_tmp b
-WHERE a.shopid=shopId AND b.shopid=shopId AND
-a.goodsid=b.goodsid AND a.sdate>=beginOfthisSeason AND 
-a.sdate<endOfthisSeason;
-
+update tmp_season_tmp a join zn_season_goods b on a.shopid=b.shopid and a.goodsid=b.goodsid set a.avg_qty_day=b.avg_qty_day;
 ###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存
-UPDATE tmp_season_tmp x,3YearsSeasonAverage y
-SET x.theoritical_qty=y.avg*14-x.closeqty,
-x.actual_qty=CASE WHEN (y.avg*14-x.closeqty<x.minorder) THEN 0.0
-											ELSE (CEILING((y.avg*14-x.closeqty)/x.minorder)*x.minorder) END
-WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid;
+UPDATE tmp_season_tmp 
+SET theoritical_qty=avg_qty_day*14-closeqty,
+actual_qty=CASE WHEN (avg_qty_day*14-closeqty<minorder) THEN 0.0
+											ELSE (CEILING((avg_qty_day*14-closeqty)/minorder)*minorder) END;
 
 #理论补货量<最小订货量时不需要补货，否则需要补货。
 #更新zn_goods表qty、flag、sdate字段;qty dec（16，3）default  0 ---计算生成的补货数量
@@ -138,11 +113,10 @@ UPDATE zn_goods a,tmp_season_tmp b
 SET 
 a.qty=b.actual_qty
 WHERE a.shopid=shopId AND b.shopid=shopId AND
-a.goodsid=b.goodsid AND b.theoritical_qty<b.minorder; 
+a.goodsid=b.goodsid AND b.theoritical_qty>=b.minorder; 
 
 UPDATE zn_goods a,tmp_season_tmp b 
 SET 
-a.flag=8,
 a.sdate=today
 WHERE a.shopid=shopId AND b.shopid=shopId AND
 a.goodsid=b.goodsid;
@@ -154,18 +128,18 @@ a.shopid AS shopid,
 a.goodsid AS goodsid,
 thisday AS firstdate,
 date_add(thisday,interval arrivaldays+1 day) AS nextdate,
-b.enddate AS begindate,
+b.begindate AS begindate,
 thisday as sdate
 FROM tmp_season_tmp a join zn_season_goods b on a.shopid=b.shopid and a.goodsid=b.goodsid
 ON DUPLICATE KEY UPDATE
 zn_season_across.shopid=VALUES(shopid),
 zn_season_across.goodsid=VALUES(goodsid),
 zn_season_across.firstdate=VALUES(firstdate),
-zn_season_across.nextdate=VALUES(nextdate),
-zn_season_across.begindate=VALUES(begindate),
-zn_season_across.sdate=VALUES(sdate);
+zn_season_across.nextdate=values(nextdate),
+zn_season_across.begindate=values(begindate),
+zn_season_across.sdate=values(sdate);
 
 update zn_goods a join zn_season_across b on a.shopid=shopid and b.shopid=shopid and a.goodsid=b.goodsid
-set a.flag=3 where thisday<b.nextdate;
+set a.flag=3 where thisday<b.nextdate and a.flag=0;
 
 END
