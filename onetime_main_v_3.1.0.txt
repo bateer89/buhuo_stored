@@ -1,6 +1,6 @@
 BEGIN
  #声明变量  /日期，临时表
- DECLARE thatDay date; DECLARE thatDayEnd date;
+DECLARE thatDay date; DECLARE thatDayEnd date;
 
 SELECT  version()
        ,@@sql_mode;
@@ -197,9 +197,9 @@ WHERE zn_price_dms.goodsid=v_goods.goodsid;
 		GROUP BY x.shopid,x.xlid,x.disc1;
 
 
-		UPDATE zn_xl_dms a,zn_xl_dms b
-		set a.dms_ori=b.dms_disc
-		WHERE a.shopid=b.shopId and b.shopid=a.shopId and a.xlid=b.xlid and
-					a.disc1<0.95 AND b.disc1=0.95;
+update (SELECT * FROM zn_xl_dms WHERE zn_xl_dms.disc1=95) a RIGHT JOIN zn_xl_dms b 
+on a.xlid=b.xlid AND a.shopid=b.shopid
+SET b.dms_ori=a.dms_disc
+WHERE b.disc1<>95 ;
 
 END
