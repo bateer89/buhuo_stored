@@ -29,7 +29,7 @@ SET chuyi=
 # 源表有v_goodsshop、v_goods。v_goodsshop中flag=0（状态正常）
 # 并且stocktype=0(管库存)的商品进入此表并对T类商品进行标注
 # （classtype=’T’），除T类外默认为C类。
-TRUNCATE zn_goods;
+#TRUNCATE zn_goods;
 INSERT INTO zn_goods (shopid,xlid,goodsid,classtype,normalprice,flag,sdate)
 SELECT
 `v_zn_goodsshop`.`shopid` AS `shopid`,
@@ -38,7 +38,7 @@ SELECT
 'C' AS `classtype`,
 `v_zn_goodsshop`.`normalprice` AS  `normalprice`,
 '0' AS `flag`,
- @today AS `sdate`
+today AS `sdate`
 FROM 
 v_zn_goodsshop,v_goods
 WHERE
@@ -80,8 +80,7 @@ a.rate1=b.rate1,
 a.rate2=b.rate2,
 a.period1=b.period1,
 a.period2=b.period2
-WHERE a.shopid=shopId AND a.xlid=b.xlid AND 
-b.begindate=get_season_condition(thisday);
+WHERE a.shopid=shopId AND a.xlid=b.xlid;
 
 
 #	f	更新zn_goods表的节日属性
@@ -120,24 +119,24 @@ END IF;
 # g.季节性商品首次补货后在到货之前暂不进行补货：
 #在zn_season_across表中并且当前日期<此表中的nextdate
 #(这个条件避免季节性商品首次补货后没有到货时重复订货的问题) 
-#,更新zn_goods表flag=3
+#,更新zn_goods表flag=8
 
 UPDATE zn_goods,zn_season_across 
-SET flag=3
+SET flag=8
 WHERE zn_goods.shopid=shopId AND zn_season_across.shopid=shopId AND
 zn_season_across.goodsid=zn_goods.goodsid AND
 today<zn_season_across.nextdate;
 
 #h.处理zn_season_across表数据：当前日期大于表中季节开始日期的记录可删除
-	DELETE FROM zn_season_across WHERE zn_season_across.begindate<today;
+	DELETE FROM zn_season_across WHERE concat(year(today),'-',zn_season_across.begindate)<today;
 
 
 #closeqty 赋值
 UPDATE zn_goods a, v_shopsstock b
-SET a.closeqty=CASE WHEN ISNULL(b.qty) THEN 0.0
-										ELSE b.qty END
+SET a.closeqty=b.qty,
+		a.flag=CASE WHEN b.qty<0 THEN 7 
+								ELSE a.flag END
 WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
-##删除负库存
-##delete from zn_goods where closeqty<0;
+
 
 END
