@@ -1,48 +1,36 @@
-BEGIN
-#3、生成小类折扣与销量表zn_xl_dms初始数据
-# 数据源按照类别xlid、折扣比例disc1、disc2汇总，dms_disc=sum(dms)/此小类在disc1和disc2折扣段的单品数量，dms_ori=小类在原价销售时单品的日均销量/小类单品数
+CREATE DEFINER = `root`@`%` PROCEDURE `everyday_dms_end`(IN `shopid` varchar(64),IN `thisday` date)
+BEGIN ###################DELETED!!!!!!!!!!!!!!############################# 
+#3、生成小类折扣与销量表zn_xl_dms初始数据 
+# 数据源按照类别xlid、折扣比例disc1、disc2汇总，dms_disc=SUM(dms)/此小类在disc1和disc2折扣段的单品数量，dms_ori=小类在原价销售时单品的日均销量/小类单品数 
+/* REPLACE INTO zn_xl_dms (shopid,xlid,disc1,disc2, dms_disc,dms_ori,sdate)
+SELECT  x.shopid                AS shopid
+       ,#x.shopname             AS shopname
+       ,x.xlid                  AS xlid
+       ,#x.xlname               AS xlname
+       ,x.disc1                 AS disc1
+       ,x.disc2                 AS disc2
+       ,SUM(x.dms)/COUNT(x.dms) AS dms_disc
+       ,0                       AS dms_ori
+       ,thisDay                 AS sdate
+FROM zn_price_dms x
+GROUP BY  x.shopid
+         ,x.xlid
+         ,x.disc1; #d.促销明细中间表zn_prom_detail_tmp表插入促销明细历史表zn_prom_detail_his后将中间表删除。
 
-		REPLACE INTO zn_xl_dms (shopid,xlid,disc1,disc2,
-        dms_disc,dms_ori,sdate)
-    SELECT 
-        x.shopid AS shopid,
-        #x.shopname AS shopname,
-        x.xlid AS xlid,
-        #x.xlname AS xlname,
-        x.disc1 AS disc1,
-        x.disc2 AS disc2,
-        SUM(x.dms)/COUNT(x.dms) AS dms_disc,
-        0 AS dms_ori,
-        thisDay AS sdate
-    FROM
-        zn_price_dms x
-		GROUP BY x.shopid,x.xlid,x.disc1;
+INSERT INTO zn_prom_detail_his(planid,planname,enddate,shopid,goodsid,price,planqty,flag,begindate,sdate,planQty)
+SELECT  `zn_prom_detail_tmp`.`planid`    AS `planid`
+       ,`zn_prom_detail_tmp`.`planname`  AS `planname`
+       ,`zn_prom_detail_tmp`.`enddate`   AS `enddate`
+       ,`zn_prom_detail_tmp`.`shopid`    AS `shopid`
+       ,`zn_prom_detail_tmp`.`goodsid`   AS `goodsid`
+       ,`zn_prom_detail_tmp`.`price`     AS `price`
+       ,`zn_prom_detail_tmp`.`planqty`   AS `planqty`
+       ,`zn_prom_detail_tmp`.`flag`      AS `flag`
+       ,`zn_prom_detail_tmp`.`begindate` AS `begindate`
+       ,`zn_prom_detail_tmp`.`sdate`     AS `sdate`
+       ,`zn_prom_detail_tmp`.`planQty`   AS `planQty`
+FROM `zn_prom_detail_tmp`
+WHERE zn_prom_detail_tmp.sdate<=today; DELETE 
+FROM zn_prom_detail_tmp
+WHERE zn_prom_detail_tmp.sdate<=today; */ END;
 
-
-		UPDATE zn_xl_dms a,zn_xl_dms b
-		set a.dms_ori=b.dms_disc
-		WHERE a.shopid=b.shopId and b.shopid=a.shopId and a.xlid=b.xlid and
-					a.disc1<0.95 AND b.disc1=0.95;
-
-
-#d.促销明细中间表zn_prom_detail_tmp表插入促销明细历史表zn_prom_detail_his后将中间表删除。
-		INSERT INTO zn_prom_detail_his(planid,planname,enddate,shopid,goodsid,price,planqty,flag,begindate,sdate,planQty)
-    SELECT 
-        `zn_prom_detail_tmp`.`planid` AS `planid`,
-        `zn_prom_detail_tmp`.`planname` AS `planname`,
-        `zn_prom_detail_tmp`.`enddate` AS `enddate`,
-        `zn_prom_detail_tmp`.`shopid` AS `shopid`,
-        `zn_prom_detail_tmp`.`goodsid` AS `goodsid`,
-        `zn_prom_detail_tmp`.`price` AS `price`,
-        `zn_prom_detail_tmp`.`planqty` AS `planqty`,
-        `zn_prom_detail_tmp`.`flag` AS `flag`,
-        `zn_prom_detail_tmp`.`begindate` AS `begindate`,
-        `zn_prom_detail_tmp`.`sdate` AS `sdate`,
-        `zn_prom_detail_tmp`.`planQty` AS `planQty`
-    FROM
-        `zn_prom_detail_tmp` WHERE zn_prom_detail_tmp.sdate<=today;
-
-		DELETE FROM zn_prom_detail_tmp WHERE zn_prom_detail_tmp.sdate<=today;
-
-
-END
