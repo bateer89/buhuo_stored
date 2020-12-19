@@ -2,21 +2,23 @@ BEGIN
 	DECLARE s int DEFAULT 0;
   DECLARE shopId varchar(255);
 	DECLARE hasData int;
-	DECLARE amount int;	
+	DECLARE amount int;
 	DECLARE amount2 int;
     -- 定义游标，并将sql结果集赋值到游标中
-  DECLARE report CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq;
+  DECLARE report CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
     -- 定义游标，并将sql结果集赋值到游标中
-  DECLARE report2 CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq;
+  DECLARE report2 CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
 
     -- 声明当游标遍历完后将标志变量置成某个值
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET s=1;
 
+		
+	#TRUNCATE TABLE zn_goods;
 
 	#处理每日将上一日的促销保存到zn_prom_tmp
 	CALL everyday_before_dms(thisday);
 
-	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount FROM v_zn_md_yt_ywq;
+	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount FROM v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
     -- 打开游标
     open report;
  
@@ -24,7 +26,7 @@ BEGIN
         fetch report into shopId;
  
         -- 当s不等于1，也就是未遍历完时，会一直循环
-        loop1:while amount<>1 do
+        loop1:while amount<>0 do
             -- 执行业务逻辑	
 					SET amount=amount-1;
 
@@ -42,12 +44,12 @@ BEGIN
 
 
 		#每日dms结束后处理
-		call everyday_dms_end();
+		#call everyday_dms_end();
 
 
 
 #每日补货
-	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount2 FROM v_zn_md_yt_ywq;
+	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount2 FROM v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
 
     -- 打开游标
     open report2;
@@ -56,22 +58,25 @@ BEGIN
         fetch report2 into shopId;
  
         -- 当s不等于1，也就是未遍历完时，会一直循环
-        loop1:while amount2<>1 do
-            -- 执行业务逻辑	
-					SET amount2=amount2-1;
+        loop1:while amount2<>0 do
+										-- 执行业务逻辑	
+									SET amount2=amount2-1;
 
-					##CALL shopHasData(shopId,thisDay,hasData);
-					##SELECT hasData;
-					##IF (hasData=1) THEN 
-					CALL everyday_sub(shopId,thisDay);
-					##END IF;
-        -- 当s等于1时表明遍历以完成，退出循环
-          fetch report2 into shopId;
-        end while loop1;
+									##CALL shopHasData(shopId,thisDay,hasData);
+									##SELECT hasData;
+									##IF (hasData=1) THEN 
+									CALL everyday_sub(shopId,thisDay);
+									##END IF;
+									-- 当s等于1时表明遍历以完成，退出循环
+									fetch report2 into shopId;
+
+							end while loop1;
     -- 关闭游标
     close report2;
 
-
+		
+CALL everyday_goods_2_his(thisday);
+TRUNCATE TABLE zn_goods;
 
 
 END
