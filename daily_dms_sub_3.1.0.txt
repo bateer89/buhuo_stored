@@ -12,7 +12,6 @@ SET 2WeeksBefore=DATE_SUB(today,INTERVAL 14 DAY);
 
 #CALL proc_tmpdayly(DATE_SUB(thisDay,INTERVAL 2 DAY),thisDay);
 
-
 DROP TABLE IF EXISTS tmp_everyday_tmp_1;
 CREATE TABLE tmp_everyday_tmp_1 (
 shopid  varchar(8) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
@@ -34,6 +33,11 @@ INDEX index_1 (shopid, goodsid, zkb) USING BTREE
 ENGINE=InnoDB
 DEFAULT CHARACTER SET=utf8 COLLATE=utf8_general_ci
 ROW_FORMAT=DYNAMIC;
+
+
+
+#a. 用zn_daly_sales近2周数据计算正常售价（ zlprice /normalprice>=0.95）的日均销量=2周正常售价销售数量/（14-促销有销售周天数）。更新zn_price_dms中正常售价对应的dms
+
 
 INSERT INTO tmp_everyday_tmp_1(shopid,
 shopname,
@@ -65,7 +69,8 @@ getZKB(x.zlprice,x.normalprice) AS zkb,
 COUNT(x.zlprice) AS dayNumber,
 COUNT(IF((x.zlprice<(getZKB(x.zlprice,x.normalprice)*x.normalprice)),1,0)) AS discDayNumber
 FROM zn_dayly_sales x 
-WHERE x.shopid=shopId AND x.goodsid NOT in (SELECT y.goodsid FROM zn_prom_detail_tmp y WHERE y.shopid=shopId)
+WHERE x.shopid=shopId AND
+x.zlprice/x.normalprice>=0.95
  AND x.sdate<=today AND x.sdate>2WeeksBefore
 GROUP BY x.shopid,x.goodsid,x.zlprice;
 
@@ -80,6 +85,7 @@ shopname  varchar(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NU
 goodsid  varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
 goodsname  varchar(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
 xlid  varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '商品类别（小类）' ,
+xlname varchar(64) DEFAULT NULL COMMENT '小类名称',
 salevalue  decimal(60,2) NULL DEFAULT NULL ,
 discvalue  decimal(60,2) NULL DEFAULT NULL ,
 disc  decimal(65,6) NULL DEFAULT NULL ,
@@ -113,6 +119,8 @@ FROM tmp_everyday_tmp_1 y
 GROUP BY  y.shopid
          ,y.goodsid
          ,y.zkb;
+
+
 # 销售数量求和
 DROP TABLE IF EXISTS tmp_everyday_tmp_2_1;
 CREATE TABLE tmp_everyday_tmp_2_1 (
@@ -147,10 +155,12 @@ WHERE a.zkb=0.95;
 
 
 #update xlid
-update tmp_everyday_tmp_2,v_goods 
-SET tmp_everyday_tmp_2.xlid=v_goods.deptid
-WHERE tmp_everyday_tmp_2.goodsid=v_goods.goodsid;
-
+/*
+update tmp_everyday_tmp_2 a,v_goods b,v_zn_cg_dl_zl_xl c
+SET a.xlid=b.deptid,
+		a.xlname=c.xlname
+WHERE a.goodsid=b.goodsid AND c.xlid=b.deptid;
+*/
 
 INSERT INTO zn_price_dms (shopid,goodsid,normalprice,disc1,disc2,band1,band2,trueprice,dms,sdate)
 SELECT 
@@ -177,11 +187,138 @@ zn_price_dms.band1=VALUES(band1),
 zn_price_dms.band2=VALUES(band2),
 zn_price_dms.trueprice=VALUES(trueprice),
 zn_price_dms.dms=VALUES(dms),
-zn_price_dms.sdate=now();
+zn_price_dms.sdate=VALUES(sdate);
 
+
+#b0.更新上一日销售数据到zn_prom_detail_tmp中
+/*
+UPDATE zn_prom_detail_tmp x,zn_dayly_sales y
+SET x.totalQty=CASE WHEN ISNULL(x.totalQty) THEN 0
+										ELSE x.totalQty+1 END,
+		x.totalDays=CASE WHEN ISNULL(x.totalDays) THEN 0
+										ELSE x.totalDays+1 END
+WHERE x.shopid=shopid AND y.shopid=shopid AND
+			x.goodsid=y.goodsid AND DATE_ADD(x.enddate,INTERVAL 1 DAY) AND y.sdate=today;
+*/
+
+#b. 用zn_daly_sales n周（与促销周期一致）数据计算zn_prom_detail_tmp表中的促销刚刚结束的促销品的日均销量=促销周期内销售数量/促销周期。更新或新增zn_price_dms中促销售价对应的dms
+DROP TABLE IF EXISTS tmp_everyday_tmp_3;
+CREATE TABLE tmp_everyday_tmp_3
+SELECT 
+        x.planid AS planid,
+        x.planname AS planname,
+        x.enddate AS enddate,
+        x.shopid AS shopid,
+				w.shopname AS shopname,
+        x.goodsid AS goodsid,
+				z.`name` AS goodsname,
+				z.deptid AS xlid,
+				a.xlname AS xlname,
+        x.price AS price,
+        x.planqty AS planqty,
+        x.flag AS flag,
+        x.begindate AS begindate,
+        x.sdate AS sdate,
+        x.totalQty AS totalQty,
+        x.totalDays AS totalDays,
+				y.normalprice AS normalprice,
+				getZKB(x.price,y.normalprice) AS zkb
+FROM
+        zn_prom_detail_tmp x,v_zn_goodsshop y,v_goods z,v_zn_md_yt_ywq w,v_zn_cg_dl_zl_xl a
+WHERE x.shopid=shopid AND DATE_ADD(x.enddate,INTERVAL 1 DAY)=today AND y.shopid=shopid AND 
+w.shopid=shopid AND
+z.goodsid=x.goodsid AND y.goodsid=x.goodsid AND a.xlid=z.deptid;
+
+INSERT INTO zn_price_dms (shopid,shopname,goodsid,goodsname,xlid,xlname,normalprice,disc1,disc2,band1,band2,trueprice,dms,sdate)
+SELECT 
+a.shopid AS shopid,
+a.shopname AS shopname,
+a.goodsid AS goodsid,
+a.goodsname AS goodsname,
+a.xlid AS xlid,
+a.xlname AS xlname,
+a.normalprice AS normalprice,
+a.zkb*100 AS disc1,
+CASE WHEN (a.zkb<0.95) THEN (a.zkb+0.05)*100
+            ELSE 5000 END AS disc2,
+a.zkb*20 AS band1,
+CASE WHEN (a.zkb*20<19) THEN a.zkb*20+1
+												ELSE 1000 END AS band2,
+a.price AS trueprice,
+a.totalQty/a.totalDays AS dms,  #销售数量
+now() as sdate
+FROM tmp_everyday_tmp_3 a
+ON DUPLICATE KEY UPDATE
+zn_price_dms.shopid=VALUES(shopid),
+zn_price_dms.shopname=VALUES(shopname),
+zn_price_dms.goodsid=VALUES(goodsid),
+zn_price_dms.goodsname=VALUES(goodsname),
+zn_price_dms.xlid=VALUES(xlid),
+zn_price_dms.xlname=VALUES(xlname),
+zn_price_dms.normalprice=VALUES(normalprice),
+zn_price_dms.disc1=VALUES(disc1),
+zn_price_dms.disc2=VALUES(disc2),
+zn_price_dms.band1=VALUES(band1),
+zn_price_dms.band2=VALUES(band2),
+zn_price_dms.trueprice=VALUES(trueprice),
+zn_price_dms.dms=VALUES(dms),
+zn_price_dms.sdate=VALUES(sdate);
+
+
+
+
+#c.根据zn_price_dms表更新zn_xl_dms
+INSERT INTO zn_xl_dms (shopid,shopname,xlid,xlname,disc1,disc2,
+        dms_disc,dms_ori,sdate)
+    SELECT 
+        x.shopid AS shopid,
+        x.shopname AS shopname,
+        x.xlid AS xlid,
+        x.xlname AS xlname,
+        x.disc1 AS disc1,
+        x.disc2 AS disc2,
+        SUM(x.dms)/COUNT(x.dms) AS dms_disc,
+        0.0 AS dms_ori,
+        today AS sdate
+    FROM
+        zn_price_dms x WHERE x.shopid=shopid
+		GROUP BY x.shopid,x.xlid,x.disc1
+ON DUPLICATE KEY UPDATE
+		zn_xl_dms.shopid=VALUES(shopid),
+		zn_xl_dms.shopname=VALUES(shopname),
+		zn_xl_dms.xlid=VALUES(xlid),
+		zn_xl_dms.xlname=VALUES(xlname),
+		zn_xl_dms.disc1=VALUES(disc1),
+		zn_xl_dms.disc2=VALUES(disc2),
+		zn_xl_dms.dms_disc=VALUES(dms_disc),
+		zn_xl_dms.dms_ori=VALUES(dms_ori),
+		zn_xl_dms.sdate=VALUES(sdate);
 
 update (SELECT * FROM zn_xl_dms WHERE zn_xl_dms.disc1=95) a RIGHT JOIN zn_xl_dms b 
 on a.xlid=b.xlid AND a.shopid=b.shopid
 SET b.dms_ori=a.dms_disc
 WHERE b.disc1<>95 AND b.shopid=shopid;
+
+
+
+#d.促销明细中间表zn_prom_detail_tmp表插入促销明细历史表zn_prom_detail_his后将中间表删除。
+		INSERT INTO zn_prom_detail_his(planid,planname,enddate,shopid,goodsid,price,planqty,flag,begindate,sdate)
+    SELECT 
+        `zn_prom_detail_tmp`.`planid` AS `planid`,
+        `zn_prom_detail_tmp`.`planname` AS `planname`,
+        `zn_prom_detail_tmp`.`enddate` AS `enddate`,
+        `zn_prom_detail_tmp`.`shopid` AS `shopid`,
+        `zn_prom_detail_tmp`.`goodsid` AS `goodsid`,
+        `zn_prom_detail_tmp`.`price` AS `price`,
+        `zn_prom_detail_tmp`.`planqty` AS `planqty`,
+        `zn_prom_detail_tmp`.`flag` AS `flag`,
+        `zn_prom_detail_tmp`.`begindate` AS `begindate`,
+        `zn_prom_detail_tmp`.`sdate` AS `sdate`
+    FROM
+        zn_prom_detail_tmp WHERE zn_prom_detail_tmp.shopid=shopid AND 
+		DATE_ADD(zn_prom_detail_tmp.enddate,INTERVAL 1 DAY)=today;
+
+		DELETE FROM zn_prom_detail_tmp WHERE zn_prom_detail_tmp.shopid=shopid AND 
+		DATE_ADD(zn_prom_detail_tmp.enddate,INTERVAL 1 DAY)=today;
+
 END
