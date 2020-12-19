@@ -1,12 +1,10 @@
-IN `thisDay` date
-
 BEGIN
 	DECLARE today date;
 
 	SET today=thisDay;
 
 	INSERT INTO zn_prom_detail_tmp(planid,planname,begindate,enddate,
-						shopid,goodsid,price,planqty,manual_flag,sdate)
+						shopid,goodsid,price,planqty,sdate)
 	SELECT 
 	#zn_prom_detail.serialid
 	zn_prom_detail.planid,
@@ -17,7 +15,7 @@ BEGIN
 	zn_prom_detail.goodsid,
 	zn_prom_detail.price,
 	zn_prom_detail.planqty,
-	zn_prom_detail.manual_flag,
+	#zn_prom_detail.manual_flag,
 	today AS sdate
 	FROM zn_prom_detail WHERE zn_prom_detail.enddate<today;
 
