@@ -31,7 +31,6 @@ SET endOfthisSeasonvachar=CASE WHEN
 SET beginOfthisSeason=str_to_date(beginOfthisSeasonvachar,'%Y-%m-%d');
 SET endOfthisSeason=str_to_date(endOfthisSeasonvachar,'%Y-%m-%d');
 
-#更新zn_season_across表字段
 
 
 
@@ -60,8 +59,8 @@ CREATE TABLE IF NOT EXISTS `tmp_daily_tmp` (
   `period1` decimal(16,2) DEFAULT NULL COMMENT '季节时间达到的比例1',
   `period2` decimal(16,2) DEFAULT NULL COMMENT '季节时间达到的比例2',
 
-
   `weekflag` char(1) CHARACTER SET utf8 DEFAULT NULL,
+	`startweek`  int(1) NULL DEFAULT 0, 
   `orderdate` char(8) CHARACTER SET utf8 DEFAULT NULL,
   `safedays` int(11) DEFAULT NULL,
   `arrivaldays` int(11) DEFAULT NULL,
@@ -77,7 +76,7 @@ CREATE TABLE IF NOT EXISTS `tmp_daily_tmp` (
   `need_replenishment` int(11) DEFAULT NULL COMMENT '需要补货',
   `weekflag_days` int(11) DEFAULT 0 COMMENT 'buhuozhouqi',
 	`trueprice` decimal(16,2) DEFAULT NULL COMMENT '实际售价',
-  KEY `index_1` (`goodsid`,`shopid`) USING BTREE,
+  UNIQUE KEY `index_1` (`goodsid`,`shopid`) USING BTREE,
   KEY `index_2` (`goodsid`) USING BTREE,
   KEY `index_3` (`shopid`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -86,7 +85,7 @@ TRUNCATE TABLE tmp_daily_tmp;
 
 #j. 判断商品是否为订货日，如果是并且zn_goods表中商品flag=0（这一判断确保每个商品一天只进行一次补货）则触发这些商品补货 。
 INSERT INTO tmp_daily_tmp (xlid,goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,holiday_begindate,holiday_enddate,
-holidaytype,zs,ho_rate,seasontype,rate1,rate2,period1,period2,orderdate,weekflag,safedays,arrivaldays,sdate,weekflag_days)
+holidaytype,zs,ho_rate,seasontype,rate1,rate2,period1,period2,startweek,orderdate,weekflag,safedays,arrivaldays,sdate,weekflag_days)
 SELECT 
 zn_goods.xlid as xlid,
 zn_goods.goodsid AS goodsid,
@@ -107,6 +106,7 @@ zn_goods.rate1 AS rate1,
 zn_goods.rate2 AS rate2,
 zn_goods.period1 AS period1,
 zn_goods.period2 AS period2,
+zn_config.Startweek AS startweek,
 zn_config.orderdate AS orderdate,
 zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
@@ -117,7 +117,7 @@ CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo
 							WHEN weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
 FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_goods.flag=0 AND zn_config.shopid=shopId AND
-zn_goods.classtype=zn_config.Classtype AND
+zn_goods.classtype=zn_config.Classtype AND 
 SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
 IF(zn_config.Weekflag=2,zn_config.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);
 
@@ -146,7 +146,7 @@ x.goodsid=y.goodsid AND (x.trueprice/x.normalprice)*100>=y.disc1 AND
 
 #--当前售价=normalprice，未找到对应的dms或dms=0:说明是新品或者没有正常价销售过，zn_goods表flag=2,转s
 UPDATE zn_goods a,tmp_daily_tmp x
-SET a.flag=5 WHERE a.shopid=shopId AND x.shopid=shopId AND
+SET a.flag=5,a.trueprice=x.trueprice WHERE a.shopid=shopId AND x.shopid=shopId AND
 a.goodsid=x.goodsid AND (ISNULL(x.dms) OR x.dms=0.0) AND 
 x.trueprice=x.normalprice;
 delete from tmp_daily_tmp where (ISNULL(dms) OR dms=0.0) and normalprice=trueprice;
@@ -162,13 +162,10 @@ x.trueprice<>x.normalprice AND
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
 UPDATE zn_goods x,tmp_daily_tmp y
-SET x.flag=4 WHERE x.shopid=shopId AND y.shopid=shopId AND
+SET x.flag=4,x.trueprice=y.trueprice WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 delete from tmp_daily_tmp where dms is null;
 
-
-
-##  Todo:更新首次补货记录?
 
 #n.根据节日属性和季节属性调整日均销量
 
@@ -176,8 +173,8 @@ delete from tmp_daily_tmp where dms is null;
 #--holidaytype=2春节其它商品, 当前日期>=enddate结束春节补货模式
 #春节期间日均销量==b取到的日均销量*zs*rate
 UPDATE tmp_daily_tmp x 
-SET x.dms=x.dms*x.zs*x.ho_rate
-WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND
+SET x.dms=x.dms*x.zs*x.ho_rate 
+WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND 
 x.holiday_enddate>today;
 
 #--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=b取到的日均销量*rate1，在period2—enddate对应的日期之内时日均销量=b取到的日均销量*rate2转e
@@ -212,36 +209,45 @@ SET x.need_replenishment=CASE WHEN (x.leftsalingDays<x.arrivaldays+x.safedays+x.
 #（1）今天与下一个补货日之间的天数<4，下一个补货日不再补货，否则补货；
 #（2）春节初一至初三可以补货、但是不送货。
 #需要补货转g,不需要补货转h
-
+#CALL everyday_procedure_springfestival(shopId,thisDay);
 
 #q．确定补货量：
-#理论补货量=（补货周期+安全库存天数+到货周期）*日均销量 - 当前库存
+#理论补货量1=（补货周期+安全库存天数+到货周期）*日均销量 - 当前库存
+#理论补货量2=系统设定的最小库存-当前库存
+#理论补货量3=max(理论补货量2, 最小订货量)
+#理论补货量=max(理论补货量1, 理论补货量3)
 #理论补货量<最小订货量时不需要补货，否则需要补货。
 #实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
 UPDATE tmp_daily_tmp x 
-SET x.actual_qty=CASE WHEN
-((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms>(x.closeqty+x.minorder))
- THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder
-ELSE 0 END;
+SET x.actual_qty=CASE WHEN 
+((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)>=(x.minstock-x.closeqty-x.minorder) 
+AND ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)>0 
+													THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder 
+											WHEN 
+((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)<(x.minstock-x.closeqty-x.minorder) 
+AND (x.minstock-x.closeqty-x.minorder)>0 
+													THEN CEILING((x.minstock-x.closeqty)/x.minorder)*x.minorder 
+ELSE 0 END; 
 
 #s.更新zn_goods表qty、flag、sdate字段;
-UPDATE zn_goods x,tmp_daily_tmp y
-SET x.flag=1,
-x.qty=y.actual_qty,
-x.sdate=today
- WHERE x.shopid=shopId AND y.shopid=shopId AND
+UPDATE zn_goods x,tmp_daily_tmp y 
+SET x.flag=1, 
+x.qty=y.actual_qty, 
+x.trueprice=y.trueprice, 
+x.sdate=today 
+ WHERE x.shopid=shopId AND y.shopid=shopId AND 
 x.goodsid=y.goodsid and x.flag=0;
 
 #r.更新zn_prom_detail商品状态：zn_goods表中flag=0并且今天是补货日商品但是在《补货系统促销明细》zn_prom_detail中flag=“1越期促销补货”的商品改为flag=‘2可以补货’并更新日期
 
-UPDATE zn_prom_detail x, zn_goods y,zn_config z
-SET x.flag=2,
-		x.sdate=today,
-		y.flag=10
-WHERE x.shopid=shopId AND y.shopid=shopId
-AND x.goodsid=y.goodsid AND
-x.flag=1 AND z.shopid=shopId and z.Classtype=y.classtype and
-SUBSTR(z.orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
+UPDATE zn_prom_detail x, zn_goods y,zn_config z 
+SET x.flag=2, 
+		x.sdate=today, 
+		y.flag=10 
+WHERE x.shopid=shopId AND y.shopid=shopId 
+AND x.goodsid=y.goodsid AND 
+x.flag=1 AND z.shopid=shopId and z.Classtype=y.classtype and 
+SUBSTR(z.orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND 
 IF(z.Weekflag=2,z.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);  
 
 
