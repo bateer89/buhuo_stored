@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS `tmp_prom_tmp` (
   `period1` decimal(16,2) DEFAULT NULL COMMENT '季节时间达到的比例1',
   `period2` decimal(16,2) DEFAULT NULL COMMENT '季节时间达到的比例2',
 
+	`startweek`  int(1) NULL DEFAULT 0, 
   `weekflag` char(1) CHARACTER SET utf8 DEFAULT NULL,
   `safedays` int(11) DEFAULT NULL,
   `arrivaldays` int(11) DEFAULT NULL,
@@ -99,7 +100,7 @@ TRUNCATE TABLE tmp_prom_tmp;
 
 INSERT INTO tmp_prom_tmp (goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,
 holiday_begindate,holiday_enddate,holidaytype,ho_rate,zs,xlid,seasontype,
-rate1,rate2,period1,period2,weekflag,safedays,arrivaldays,sdate,price,planqty,
+rate1,rate2,period1,period2,startweek,weekflag,safedays,arrivaldays,sdate,price,planqty,
 flag,manual_flag,weekflag_days)
 SELECT 
 zn_goods.goodsid AS goodsid,
@@ -114,12 +115,13 @@ zn_goods.`holiday_enddate`,
 zn_goods.`holidaytype`,
 zn_goods.`ho_rate`,
 zn_goods.`zs`,
-zn_goods.xlid,
+zn_goods.`xlid`,
 zn_goods.`seasontype`,
 zn_goods.`rate1`,
 zn_goods.`rate2`,
 zn_goods.`period1`,
 zn_goods.`period2`,
+zn_config.Startweek AS startweek,
 zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
@@ -154,6 +156,8 @@ x.goodsid=y.goodsid AND (x.price/x.normalprice)*100>=y.disc1 AND
 #再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。
 #日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转c
 
+
+
 UPDATE tmp_prom_tmp x,zn_xl_dms y
 SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
 WHERE x.shopid=shopId AND y.shopid=shopId AND
@@ -163,10 +167,10 @@ ISNULL(x.dms) AND x.xlid=y.xlid AND
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
 UPDATE zn_goods x,tmp_prom_tmp y
-SET x.flag=4 WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and ISNULL(y.dms) ;
-UPDATE zn_prom_detail a,tmp_prom_tmp y
+SET x.flag=4,x.trueprice=y.price WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and ISNULL(y.dms) ;
+UPDATE zn_prom_detail a,tmp_prom_tmp y 
 SET a.flag=2,
-		a.sdate=today
+		a.sdate=today 
 WHERE a.shopid=shopId AND y.shopid=shopId AND a.goodsid=y.goodsid and ISNULL(y.dms);
 delete from tmp_prom_tmp where dms is null;
 
@@ -179,8 +183,8 @@ delete from tmp_prom_tmp where dms is null;
 #--holidaytype=2春节其它商品, 当前日期>=enddate结束春节补货模式
 #春节期间日均销量==b取到的日均销量*zs*rate
 UPDATE tmp_prom_tmp x 
-SET x.dms=x.dms*x.zs*x.ho_rate
-WHERE x.holidaytype=2 AND date_add(x.holiday_begindate,interval -6 day)<=today AND
+SET x.dms=x.dms*x.zs*x.ho_rate 
+WHERE x.holidaytype=2 AND date_add(x.holiday_begindate,interval -6 day)<=today AND 
 x.holiday_enddate>today;
 
 #--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=b取到的日均销量*rate1，
@@ -216,16 +220,24 @@ SET x.need_replenishment=CASE WHEN (x.leftsalingDays<x.arrivaldays+x.safedays+x.
 #（1）今天与下一个补货日之间的天数<4，下一个补货日不再补货，否则补货；
 #（2）春节初一至初三可以补货、但是不送货。
 #需要补货转g,不需要补货转h
-
+##CALL everyday_procedure_springfestival(shopId,thisDay);
 
 #g．确定补货量：
-#理论补货量=（补货周期+安全库存天数+到货周期）*日均销量 - 当前库存
+#理论补货量1=（补货周期+安全库存天数+到货周期）*日均销量 - 当前库存
+#理论补货量2=系统设定的最小库存-当前库存
+#理论补货量3=max(理论补货量2, 最小订货量)
+#理论补货量=max(理论补货量1, 理论补货量3)
 #理论补货量<最小订货量时不需要补货，否则需要补货。
 #实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
 UPDATE tmp_prom_tmp x 
-SET x.actual_qty=CASE WHEN
-((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms>(x.closeqty+x.minorder))
- THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder
+SET x.actual_qty=CASE WHEN 
+((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)>=(x.minstock-x.closeqty-x.minorder)
+AND ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)>0
+													THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder
+											WHEN
+((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)<(x.minstock-x.closeqty-x.minorder)
+AND (x.minstock-x.closeqty-x.minorder)>0
+													THEN CEILING((x.minstock-x.closeqty)/x.minorder)*x.minorder
 ELSE 0 END;
 
 
@@ -234,6 +246,7 @@ ELSE 0 END;
 UPDATE zn_goods x,tmp_prom_tmp y
 SET x.flag=9,
 x.qty=y.actual_qty,
+x.trueprice=y.price,
 x.sdate=today
  WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid;
