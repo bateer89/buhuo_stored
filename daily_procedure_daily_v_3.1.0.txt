@@ -6,9 +6,15 @@ DECLARE beginOfthisSeason date;
 DECLARE beginOfthisSeasonvachar VARCHAR(255);
 DECLARE endOfthisSeason date;
 DECLARE endOfthisSeasonvachar VARCHAR(255);
+DECLARE springfestivalbegin date;
+DECLARE springfestivalend date;
 #开始结束日期年份
 DECLARE yearOfthisSeasonbegin VARCHAR(255);
 DECLARE yearOfthisSeasonend VARCHAR(255);
+
+
+SET springfestivalbegin=(SELECT zn_calendar.startdate FROM zn_calendar WHERE zn_calendar.holidayid+0=1+0 LIMIT 1);
+SET springfestivalend=(SELECT zn_calendar.enddate FROM zn_calendar WHERE zn_calendar.holidayid+0=1+0 LIMIT 1);
 
 SET today=thisDay;
 SET 3MonthEarlier=DATE_SUB(today,INTERVAL 90 DAY);
@@ -83,6 +89,8 @@ CREATE TABLE IF NOT EXISTS `tmp_daily_tmp` (
 
 TRUNCATE TABLE tmp_daily_tmp;
 
+IF NOT (DATE_SUB(springfestivalbegin,INTERVAL 6 DAY)<=today AND springfestivalend>=today) THEN
+
 #j. 判断商品是否为订货日，如果是并且zn_goods表中商品flag=0（这一判断确保每个商品一天只进行一次补货）则触发这些商品补货 。
 INSERT INTO tmp_daily_tmp (xlid,goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,holiday_begindate,holiday_enddate,
 holidaytype,zs,ho_rate,seasontype,rate1,rate2,period1,period2,startweek,orderdate,weekflag,safedays,arrivaldays,sdate,weekflag_days)
@@ -113,56 +121,59 @@ zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate,
 CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo_days(zn_config.Orderdate,today) 
-							WHEN (weekflag=1 AND zn_config.Classtype='B') THEN 7
-							WHEN weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
+							WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='B') THEN 7
+							WHEN zn_config.Weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
 FROM zn_goods,zn_config
-WHERE zn_goods.shopid=shopId AND zn_goods.flag=0 AND zn_config.shopid=shopId AND
+WHERE zn_goods.shopid=shopId AND zn_goods.flag=0 AND zn_config.shopid=shopId AND 
 zn_goods.classtype=zn_config.Classtype AND 
-SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
+SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND 
 IF(zn_config.Weekflag=2,zn_config.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);
+
+ELSE CALL everyday_procedure_springfestival(shopId,thisDay);
+end IF ;
 
 
 #k.取出商品在到货时的售价：到《补货系统促销明细》zn_prom_detail中
 #找到flag=“2可以补货”的商品并取出促销售价，当前日期+到货周期>促销结束日期时应该取商品的正常售价；
-UPDATE tmp_daily_tmp x,zn_prom_detail y
-SET x.trueprice=y.price
-WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND
+UPDATE tmp_daily_tmp x,zn_prom_detail y 
+SET x.trueprice=y.price 
+WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND 
 DATE_ADD(today,INTERVAL x.arrivaldays DAY)<y.enddate AND y.flag=2;
 
 #如果未找到则用zn_goods表中的正常售价normalprice.
-UPDATE tmp_daily_tmp x
-SET x.trueprice=x.normalprice
+UPDATE tmp_daily_tmp x 
+SET x.trueprice=x.normalprice 
 WHERE ISNULL(x.trueprice);
 
 
 # m. 取出日均销量：
 #--根据促销价格到zn_price_dms取出这些促销品对应的dms, 转n
-UPDATE tmp_daily_tmp x,zn_price_dms y
+UPDATE tmp_daily_tmp x,zn_price_dms y 
 SET x.dms=y.dms,
-x.trueprice=y.trueprice
-WHERE x.shopid=shopId AND y.shopid=shopId AND
+x.trueprice=y.trueprice 
+WHERE x.shopid=shopId AND y.shopid=shopId AND 
 x.goodsid=y.goodsid AND (x.trueprice/x.normalprice)*100>=y.disc1 AND 
 (x.trueprice/x.normalprice)*100<y.disc2;
 
 #--当前售价=normalprice，未找到对应的dms或dms=0:说明是新品或者没有正常价销售过，zn_goods表flag=2,转s
-UPDATE zn_goods a,tmp_daily_tmp x
-SET a.flag=5,a.trueprice=x.trueprice WHERE a.shopid=shopId AND x.shopid=shopId AND
+UPDATE zn_goods a,tmp_daily_tmp x 
+SET a.flag=5,a.trueprice=x.trueprice WHERE a.shopid=shopId AND x.shopid=shopId AND 
 a.goodsid=x.goodsid AND (ISNULL(x.dms) OR x.dms=0.0) AND 
 x.trueprice=x.normalprice;
 delete from tmp_daily_tmp where (ISNULL(dms) OR dms=0.0) and normalprice=trueprice;
 #--当前售价<>normalprice,未找到对应的dms:则根据这只单品的定价和取到的促销售价算出促销价所处的折扣段,再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转n
 
-UPDATE tmp_daily_tmp x,zn_xl_dms y
-SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori)
-WHERE x.shopid=shopId AND y.shopid=shopId AND
+UPDATE tmp_daily_tmp x,zn_xl_dms y 
+SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori) 
+WHERE x.shopid=shopId AND y.shopid=shopId AND 
 ISNULL(x.dms) AND y.xlid=x.xlid AND 
-x.trueprice<>x.normalprice AND
-(x.trueprice/x.normalprice)*100<y.disc2 AND
+x.trueprice<>x.normalprice AND 
+(x.trueprice/x.normalprice)*100<y.disc2 AND 
  (x.trueprice/x.normalprice)*100>=y.disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
-UPDATE zn_goods x,tmp_daily_tmp y
-SET x.flag=4,x.trueprice=y.trueprice WHERE x.shopid=shopId AND y.shopid=shopId AND
+UPDATE zn_goods x,tmp_daily_tmp y 
+SET x.flag=4,x.trueprice=y.trueprice WHERE x.shopid=shopId AND y.shopid=shopId AND 
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 delete from tmp_daily_tmp where dms is null;
 
