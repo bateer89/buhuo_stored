@@ -1,0 +1,30 @@
+BEGIN
+	DECLARE days INT;
+	DECLARE daohuo_days INT;
+	DECLARE spring_end DATE;
+	DECLARE nobuhuo_begin DATE;
+	DECLARE nobuhuo_end DATE;
+	DECLARE next_buhuo_date DATE;
+	DECLARE next_next_buhuo_date DATE;
+	
+	SET days=0;
+	#SET daohuo_days=(SELECT a.Arrivaldays FROM zn_config a LIMIT 1);
+	SET daohuo_days=ArrivalDays;
+	SET spring_end=(SELECT a.sundate FROM zn_calendar a WHERE a.holidayid+1=2 AND YEAR(a.sundate)=YEAR(thisday) LIMIT 1);
+	
+	SET nobuhuo_begin=DATE_ADD(spring_end,INTERVAL (1-daohuo_days) DAY);
+	SET nobuhuo_end=DATE_ADD(spring_end,INTERVAL (3-daohuo_days) DAY);
+
+	SET next_buhuo_date=get_next_buhuo_date(0, orderdate, 0, thisday);
+	SET next_next_buhuo_date=get_next_buhuo_date(0, orderdate, 0, next_buhuo_date);
+
+	IF ((SUBSTR(orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1') AND 
+			(next_buhuo_date<=nobuhuo_end AND next_buhuo_date>=nobuhuo_begin))
+		THEN 
+			WHILE next_buhuo_date<=nobuhuo_end DO
+				SET days=days+get_next_buhuoDay_dateDiff(orderdate, next_buhuo_date);
+				SET next_buhuo_date=get_next_buhuo_date(0, orderdate, 0, next_buhuo_date);
+			END WHILE;
+	END IF;
+	SELECT days;
+END
