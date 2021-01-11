@@ -1,3 +1,4 @@
+CREATE DEFINER=`root`@`%` PROCEDURE `daily_goods`(IN `shopId` varchar(64),IN `thisDay` date)
 BEGIN
 # 定义当前时间
 DECLARE today date;
@@ -10,10 +11,11 @@ DECLARE season_condition varchar(255);
 
 SET today=thisDay;
 SET springfestivalbegin=DATE_SUB(
-(SELECT zn_calendar.startdate FROM zn_calendar WHERE holidayid='01' AND DATE_FORMAT(zn_calendar.startdate,'%Y')=YEAR(today)),
+(SELECT zn_calendar.startdate FROM zn_calendar WHERE holidayid+0=1 AND DATE_FORMAT(zn_calendar.enddate,'%Y')=YEAR(today) LIMIT 1),
 INTERVAL 6 DAY);
-SET chuyi=
-(SELECT zn_calendar.sundate FROM zn_calendar WHERE holidayid='01' AND DATE_FORMAT(zn_calendar.startdate,'%Y')=YEAR(today));
+SET springfestivalend=
+(SELECT zn_calendar.enddate FROM zn_calendar WHERE holidayid+0=1 AND DATE_FORMAT(zn_calendar.enddate,'%Y')=YEAR(today) LIMIT 1);
+SET chuyi=DATE_ADD(springfestivalend,INTERVAL 1 DAY);
 
 #将v_goods和v_zn_goodsshop 转成表
 #DROP TABLE IF EXISTS tmp_everyday_v_goods;
@@ -30,35 +32,40 @@ SET chuyi=
 # 并且stocktype=0(管库存)的商品进入此表并对T类商品进行标注
 # （classtype=’T’），除T类外默认为C类。
 #TRUNCATE zn_goods;
-INSERT INTO zn_goods (shopid,xlid,goodsid,classtype,normalprice,flag,sdate)
+INSERT INTO zn_goods (shopid,shopname,xlid,goodsid,goodsname,classtype,normalprice,flag,sdate,trueprice)
 SELECT
 `v_zn_goodsshop`.`shopid` AS `shopid`,
+`v_zn_goodsshop`.`shopname`,
 `v_goods`.`deptid` AS `xlid`,
 `v_zn_goodsshop`.`goodsid` AS `goodsid`,
+`v_zn_goodsshop`.`goodsname`,
 'C' AS `classtype`,
 `v_zn_goodsshop`.`normalprice` AS  `normalprice`,
 '0' AS `flag`,
-today AS `sdate`
+today AS `sdate`,
+`v_zn_goodsshop`.`normalprice` AS  `trueprice`
 FROM 
 v_zn_goodsshop,v_goods
 WHERE
 v_zn_goodsshop.shopid=shopId AND v_zn_goodsshop.stocktype=0 AND v_zn_goodsshop.flag in (0,8,9) AND 
 v_zn_goodsshop.goodsid = v_goods.goodsid AND v_goods.flag=0;
 
+##更新采购线id
+update zn_goods a join v_zn_cg_dl_zl_xl b on a.xlid=b.xlid set a.cgid=b.cgid;
 ##对T类商品进行标注(v_tgoods)
 
-UPDATE zn_goods a,v_tgoods b
-SET a.classtype='T'
+UPDATE zn_goods a,v_tgoods b 
+SET a.classtype='T' 
 WHERE a.shopid=shopId AND a.goodsid=b.goodsid;
 
 
 ##############10min#############
 #c 更新zn_goods表Minstock、minorder字段
-UPDATE zn_goods,v_minorder
+UPDATE zn_goods,v_minorder 
 SET `zn_goods`.`minorder`=v_minorder.minorderqty,
-`zn_goods`.`minstock`=v_minorder.minstockqty
+`zn_goods`.`minstock`=v_minorder.minstockqty 
 WHERE 
-v_minorder.shopid=shopId AND zn_goods.shopid=shopId AND
+v_minorder.shopid=shopId AND zn_goods.shopid=shopId AND 
 v_minorder.goodsid=zn_goods.goodsid;
 
 #d 用v_pos_2w数据更新ABC分类并更新zn_goods表的classtype,更新sdate
@@ -72,7 +79,7 @@ WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
 ##############10min#############
 ##!!时间段外为普通商品!!
 
-UPDATE zn_goods a,zn_season_xl b
+UPDATE zn_goods a,zn_season_xl b 
 SET 
 a.seasontype=1,
 a.arrdate=b.arrdate,
@@ -91,8 +98,8 @@ DROP TABLE IF EXISTS tmp_everyday_holiday1;
 CREATE TABLE tmp_everyday_holiday1 AS
 SELECT 
 zn_holiday_goods.goodsid AS goodsid,
-zn_holiday_goods.xlid AS xlid
-FROM zn_calendar,zn_holiday_goods WHERE (zn_holiday_goods.holidayid+0)=(zn_calendar.holidayid+0) AND
+zn_holiday_goods.xlid AS xlid 
+FROM zn_calendar,zn_holiday_goods WHERE (zn_holiday_goods.holidayid+0)=(zn_calendar.holidayid+0) AND 
 zn_calendar.startdate<=today AND zn_calendar.enddate>today AND 
 YEAR(zn_calendar.sundate)=YEAR(thisday);   ##控制zn_calendar的年份
 ALTER TABLE tmp_everyday_holiday1 ADD INDEX index_1(goodsid);
@@ -102,16 +109,20 @@ ON zn_goods.shopid=shopId AND zn_goods.goodsid=x.goodsid
 SET zn_goods.flag=2,
 		zn_goods.holidaytype=1;
 
-#---F2:当前日期>=(春节开始时间- 6天)至初一（sundate）之间并且商品不属于zn_holiday_goods表中春节专属商品时, 更新节日属性=2及起止时间，这期间陆续用春节指数补货。
+#---F2:当前日期>=(春节开始时间-6天)至初一（sundate）之间并且商品不属于zn_holiday_goods表中春节专属商品时, 更新节日属性=2及起止时间，这期间陆续用春节指数补货。
 IF (today>=springfestivalbegin AND today<chuyi)THEN 
-		UPDATE zn_goods c,(SELECT a.* FROM
+#删除春节特殊商品
+		DELETE c FROM zn_goods c,(SELECT a.* FROM 
 	 (SELECT zn_goods.goodsid FROM zn_goods WHERE zn_goods.shopid=shopId) a,
-	 (SELECT zn_holiday_goods.goodsid FROM zn_holiday_goods WHERE zn_holiday_goods.holidayid<>'01') b 
+	 (SELECT zn_holiday_goods.goodsid FROM zn_holiday_goods WHERE zn_holiday_goods.holidayid='01') b 
 		WHERE a.goodsid=b.goodsid) d 
+		WHERE c.shopid=shopId and c.goodsid=d.goodsid;
+
+		UPDATE zn_goods c
 			SET c.holidaytype=2,
 					c.holiday_begindate=springfestivalbegin,
-					c.holiday_enddate=chuyi
-			WHERE c.shopid=shopId and c.goodsid=d.goodsid;
+					c.holiday_enddate=chuyi 
+			WHERE c.shopid=shopId ;
 END IF;
 
 
@@ -122,13 +133,13 @@ END IF;
 #,更新zn_goods表flag=8
 
 UPDATE zn_goods,zn_season_across 
-SET flag=8
-WHERE zn_goods.shopid=shopId AND zn_season_across.shopid=shopId AND
-zn_season_across.goodsid=zn_goods.goodsid AND
+SET flag=8 
+WHERE zn_goods.shopid=shopId AND zn_season_across.shopid=shopId AND 
+zn_season_across.goodsid=zn_goods.goodsid AND 
 today<zn_season_across.nextdate;
 
 #h.处理zn_season_across表数据：当前日期大于表中季节开始日期的记录可删除
-	DELETE FROM zn_season_across WHERE concat(year(today),'-',zn_season_across.begindate)<today;
+DELETE FROM zn_season_across WHERE concat(year(today),'-',zn_season_across.begindate)<today;
 
 
 #closeqty 赋值
