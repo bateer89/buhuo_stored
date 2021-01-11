@@ -26,5 +26,5 @@ BEGIN
 				SET next_buhuo_date=get_next_buhuo_date(0, orderdate, 0, next_buhuo_date);
 			END WHILE;
 	END IF;
-	SELECT days;
+	return days;
 END
