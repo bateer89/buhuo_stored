@@ -1,5 +1,4 @@
 BEGIN
-
 DECLARE today date;
 DECLARE beginOfthisSeason date;
 DECLARE beginOfthisSeasonvachar VARCHAR(255);
