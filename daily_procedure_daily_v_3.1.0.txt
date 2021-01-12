@@ -16,8 +16,8 @@ declare t_endday int;
 select value into c_endday from zn_param where id=13;
 select value into t_endday from zn_param where id=14;
 
-SET springfestivalbegin=(SELECT zn_calendar.startdate FROM zn_calendar WHERE zn_calendar.holidayid+0=1+0 LIMIT 1);
-SET springfestivalend=(SELECT zn_calendar.enddate FROM zn_calendar WHERE zn_calendar.holidayid+0=1+0 LIMIT 1);
+SET springfestivalbegin=(SELECT x.startdate FROM zn_calendar x WHERE x.holidayid+0=1+0 AND YEAR(x.sundate)=YEAR(NOW()) LIMIT 1);
+SET springfestivalend=(SELECT x.enddate FROM zn_calendar x WHERE x.holidayid+0=1+0 AND YEAR(x.sundate)=YEAR(NOW()) LIMIT 1);
 
 SET today=thisDay;
 SET yearOfthisSeasonbegin=DATE_FORMAT(today,'%Y');
@@ -126,8 +126,83 @@ zn_goods.classtype=zn_config.Classtype AND
 SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND 
 IF(zn_config.Weekflag=2,zn_config.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);
 
-ELSE CALL everyday_procedure_springfestival(shopId,thisDay);
+ELSE CALL everyday_procedure_springfestival(shopId, thisDay);
 end IF ;
+
+#春节
+#F4:B、C类商品退出A类商品的规则补货：春节结束后第一个补货日仍然按照A类的补货日进行补货，但是补货周期转成B或C类。
+IF (springfestivalend<today AND today<DATE_ADD(springfestivalend,INTERVAL 15 DAY)) THEN 
+TRUNCATE tmp_daily_tmp;
+INSERT INTO tmp_daily_tmp (xlid,goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,holiday_begindate,holiday_enddate,
+holidaytype,zs,ho_rate,seasontype,rate1,rate2,period1,period2,orderdate,weekflag,safedays,arrivaldays,sdate,weekflag_days) 
+SELECT 
+a.xlid as xlid,
+a.goodsid AS goodsid,
+a.shopid AS shopid,
+a.normalprice AS normalprice,
+a.classtype AS classtype,
+a.minorder AS minorder,
+a.minstock AS minstock,
+a.closeqty AS closeqty,
+a.holiday_begindate AS holiday_begindate,
+a.holiday_enddate AS holiday_enddate,
+a.holidaytype AS holidaytype,
+a.zs AS zs,
+a.ho_rate AS ho_rate,
+a.seasontype AS seasontype,
+a.rate1 AS rate1,
+a.rate2 AS rate2,
+a.period1 AS period1,
+a.period2 AS period2,
+c.orderdate AS orderdate,
+b.weekflag AS weekflag,#补货周期
+b.safedays AS safedays,#安全库存天数
+b.arrivaldays AS arrivaldays,#到货周期
+a.sdate AS sdate,
+CASE WHEN (c.Weekflag=1 AND c.Classtype='A') THEN get_next_buhuo_days(c.Orderdate,today) 
+							WHEN (c.Weekflag=1 AND c.Classtype='B') THEN 7
+							WHEN c.Weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
+FROM zn_goods a,zn_config b,zn_config c
+WHERE a.shopid=shopId AND b.shopid=shopId AND c.shopid=shopId AND a.flag=0 
+AND b.Classtype=a.classtype AND c.classtype='A' AND a.holidaytype=2 AND
+SUBSTR(c.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND
+	IF(b.Weekflag=2,b.Startweek mod 2=WEEKOFYEAR(today)mod 2,1) AND
+get_next_buhuo_date(b.Weekflag,c.Orderdate,b.Startweek,DATE_ADD(holiday_enddate,INTERVAL 1 DAY))=thisday
+ON DUPLICATE KEY UPDATE
+tmp_daily_tmp.xlid=VALUES(xlid),
+tmp_daily_tmp.goodsid=VALUES(goodsid),
+tmp_daily_tmp.shopid=VALUES(shopid),
+tmp_daily_tmp.normalprice=VALUES(normalprice),
+tmp_daily_tmp.classtype=VALUES(classtype),
+tmp_daily_tmp.minorder=VALUES(minorder),
+tmp_daily_tmp.minstock=VALUES(minstock),
+tmp_daily_tmp.closeqty=VALUES(closeqty),
+tmp_daily_tmp.holiday_begindate=VALUES(holiday_begindate),
+tmp_daily_tmp.holiday_enddate=VALUES(holiday_enddate),
+tmp_daily_tmp.holidaytype=VALUES(holidaytype),
+tmp_daily_tmp.zs=VALUES(zs),
+tmp_daily_tmp.ho_rate=VALUES(ho_rate),
+tmp_daily_tmp.seasontype=VALUES(seasontype),
+tmp_daily_tmp.rate1=VALUES(rate1),
+tmp_daily_tmp.rate2=VALUES(rate2),
+tmp_daily_tmp.period1=VALUES(period1),
+tmp_daily_tmp.period2=VALUES(period2),
+tmp_daily_tmp.orderdate=VALUES(orderdate),
+tmp_daily_tmp.weekflag=VALUES(weekflag),
+tmp_daily_tmp.safedays=VALUES(safedays),
+tmp_daily_tmp.arrivaldays=VALUES(arrivaldays),
+tmp_daily_tmp.sdate=VALUES(sdate),
+tmp_daily_tmp.weekflag_days=VALUES(weekflag_days);
+END IF;
+
+
+/*节日越期*/
+DELETE FROM zn_holiday_across WHERE zn_holiday_across.shopid=shopId AND 
+DATE(zn_holiday_across.nextdate)<thisday;
+
+DELETE d FROM tmp_daily_tmp d, zn_holiday_across a 
+WHERE d.shopid=shopId AND a.shopid=shopId AND d.goodsid=a.goodsid AND DATE(a.nextdate)=thisDay;
+
 
 
 #k.取出商品在到货时的售价：到《补货系统促销明细》zn_prom_detail中
@@ -169,6 +244,9 @@ SET x.flag=4,x.trueprice=y.trueprice WHERE x.shopid=shopId AND y.shopid=shopId A
 x.goodsid=y.goodsid AND ISNULL(y.dms) ;
 delete from tmp_daily_tmp where dms is null;
 
+
+SELECT "ook3";
+SELECT * FROM tmp_daily_tmp;
 
 #n.根据节日属性和季节属性调整日均销量
 
