@@ -1,7 +1,6 @@
 BEGIN
 
 DECLARE today date;
-DECLARE 3MonthEarlier date;
 DECLARE beginOfthisSeason date;
 DECLARE beginOfthisSeasonvachar VARCHAR(255);
 DECLARE endOfthisSeason date;
@@ -11,13 +10,16 @@ DECLARE springfestivalend date;
 #开始结束日期年份
 DECLARE yearOfthisSeasonbegin VARCHAR(255);
 DECLARE yearOfthisSeasonend VARCHAR(255);
-
+##CT类促销取正常售价时间
+declare c_endday int;
+declare t_endday int;
+select value into c_endday from zn_param where id=13;
+select value into t_endday from zn_param where id=14;
 
 SET springfestivalbegin=(SELECT zn_calendar.startdate FROM zn_calendar WHERE zn_calendar.holidayid+0=1+0 LIMIT 1);
 SET springfestivalend=(SELECT zn_calendar.enddate FROM zn_calendar WHERE zn_calendar.holidayid+0=1+0 LIMIT 1);
 
 SET today=thisDay;
-SET 3MonthEarlier=DATE_SUB(today,INTERVAL 90 DAY);
 SET yearOfthisSeasonbegin=DATE_FORMAT(today,'%Y');
 SET yearOfthisSeasonend=CAST(CAST(yearOfthisSeasonbegin AS SIGNED)+1 AS CHAR(255));
 SET beginOfthisSeasonvachar=CASE WHEN 
@@ -36,9 +38,6 @@ SET endOfthisSeasonvachar=CASE WHEN
 		END;
 SET beginOfthisSeason=str_to_date(beginOfthisSeasonvachar,'%Y-%m-%d');
 SET endOfthisSeason=str_to_date(endOfthisSeasonvachar,'%Y-%m-%d');
-
-
-
 
 
 # 补货日补货
@@ -120,10 +119,8 @@ zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate,
-CASE WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='A') THEN get_next_buhuo_days(zn_config.Orderdate,today) 
-							WHEN (zn_config.Weekflag=1 AND zn_config.Classtype='B') THEN 7
-							WHEN zn_config.Weekflag=2 THEN 14 ELSE 0 END AS weekflag_days
-FROM zn_goods,zn_config
+DATEDIFF(get_next_buhuo_date(weekflag,zn_config.Orderdate,zn_config.Startweek,today),today) AS weekflag_days 
+FROM zn_goods,zn_config 
 WHERE zn_goods.shopid=shopId AND zn_goods.flag=0 AND zn_config.shopid=shopId AND 
 zn_goods.classtype=zn_config.Classtype AND 
 SUBSTR(zn_config.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND 
@@ -137,14 +134,18 @@ end IF ;
 #找到flag=“2可以补货”的商品并取出促销售价，当前日期+到货周期>促销结束日期时应该取商品的正常售价；
 UPDATE tmp_daily_tmp x,zn_prom_detail y 
 SET x.trueprice=y.price 
-WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND 
-DATE_ADD(today,INTERVAL x.arrivaldays DAY)<y.enddate AND y.flag=2;
+WHERE x.shopid=shopId AND y.shopid=shopId AND x.goodsid=y.goodsid AND  
+ y.flag=2 AND DATE_ADD(today,INTERVAL x.arrivaldays+x.safedays-1 DAY)<=y.enddate;
+
 
 #如果未找到则用zn_goods表中的正常售价normalprice.
 UPDATE tmp_daily_tmp x 
 SET x.trueprice=x.normalprice 
 WHERE ISNULL(x.trueprice);
 
+##！！！促销品补货要根据促销时长采用促销DMS和正常价DMS分段补货
+
+##！！！促销期内非首次促销补货参考最近的促销dms
 
 # m. 取出日均销量：
 #--根据促销价格到zn_price_dms取出这些促销品对应的dms, 转n
@@ -161,15 +162,6 @@ SET a.flag=5,a.trueprice=x.trueprice WHERE a.shopid=shopId AND x.shopid=shopId A
 a.goodsid=x.goodsid AND (ISNULL(x.dms) OR x.dms=0.0) AND 
 x.trueprice=x.normalprice;
 delete from tmp_daily_tmp where (ISNULL(dms) OR dms=0.0) and normalprice=trueprice;
-#--当前售价<>normalprice,未找到对应的dms:则根据这只单品的定价和取到的促销售价算出促销价所处的折扣段,再到《小类折扣与销量》zn_xl_dms表找到这只单品所属小分类对应的折扣段，对应的dms_disc/dms_ori就是该小分类下在这个折扣段的dms增长率。日均销量=这个dms增长率*这只单品的定价DMS(或者小分类的dms_ori) , 转n
-
-UPDATE tmp_daily_tmp x,zn_xl_dms y 
-SET x.dms=y.dms_ori*(y.dms_disc/y.dms_ori) 
-WHERE x.shopid=shopId AND y.shopid=shopId AND 
-ISNULL(x.dms) AND y.xlid=x.xlid AND 
-x.trueprice<>x.normalprice AND 
-(x.trueprice/x.normalprice)*100<y.disc2 AND 
- (x.trueprice/x.normalprice)*100>=y.disc1;
 
 #--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
 UPDATE zn_goods x,tmp_daily_tmp y 
@@ -189,27 +181,16 @@ WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND
 x.holiday_enddate>today;
 
 #--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=b取到的日均销量*rate1，在period2—enddate对应的日期之内时日均销量=b取到的日均销量*rate2转e
-UPDATE tmp_daily_tmp x
-SET x.dms=CASE WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
-(DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period1) 
-DAY)<today THEN x.dms*x.rate1/100.0 
-							 WHEN DATE_ADD(beginOfthisSeason,INTERVAL 
-(DATEDIFF(beginOfthisSeason,endOfthisSeason)*x.period2) 
-DAY)<today THEN x.dms*x.rate2/100.0 END
+UPDATE tmp_daily_tmp x join zn_season_goods y on x.shopid=y.shopid and x.goodsid=y.goodsid
+SET x.dms=CASE WHEN DATE_ADD(concat(year(CURDATE()),'-',y.begindate),INTERVAL 
+(DATEDIFF(if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)),concat(year(CURDATE()),'-',y.begindate))*x.period1/100) 
+DAY)<today and today<if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)) THEN x.dms*x.rate1/100.0 
+							 WHEN DATE_ADD(concat(year(CURDATE()),'-',y.begindate),INTERVAL 
+(DATEDIFF(if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)),concat(year(CURDATE()),'-',y.begindate))*x.period2/100) 
+DAY)<today and today<if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)) THEN x.dms*x.rate2/100.0 
+else x.dms END
 WHERE x.seasontype=1;
 
-
-# o计算当前可销天数：当前可销天数=当前库存数量/日均销量
-UPDATE tmp_daily_tmp x
-SET x.leftsalingDays=FLOOR(x.closeqty/x.dms);
-
-
-#p判断是否需要补货：符合以下两个条件之一时需要补货。
-#（1）当前可销天数<(补货周期+安全库存天数+到货周期)
-#（2）当前库存小于系统设定的最小库存数。
-UPDATE tmp_daily_tmp x 
-SET x.need_replenishment=CASE WHEN (x.leftsalingDays<x.arrivaldays+x.safedays+x.weekflag_days) THEN 1
-															WHEN (x.closeqty<x.minstock) THEN 1 END;
 
 #下面为春节其它商品在春节期间需要调整补货周期、到货周期的规则：
 #F2 :一般春节初一至初三不送货（参数控制），因此春节期间最后一个补货日会涉及越期订货问题：到货日期在begindate至enddate之间的最大到货日期对应的补货应该为越期补货
@@ -231,12 +212,12 @@ SET x.need_replenishment=CASE WHEN (x.leftsalingDays<x.arrivaldays+x.safedays+x.
 #实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
 UPDATE tmp_daily_tmp x 
 SET x.actual_qty=CASE WHEN 
-((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)>=(x.minstock-x.closeqty-x.minorder) 
-AND ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)>0 
+((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)>(x.minstock-x.closeqty) 
+AND ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)>0 
+and  ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)>=x.minorder
 													THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder 
-											WHEN 
-((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty-x.minorder)<(x.minstock-x.closeqty-x.minorder) 
-AND (x.minstock-x.closeqty-x.minorder)>0 
+WHEN 
+ (x.minstock-x.closeqty)>0 
 													THEN CEILING((x.minstock-x.closeqty)/x.minorder)*x.minorder 
 ELSE 0 END; 
 
@@ -259,7 +240,6 @@ WHERE x.shopid=shopId AND y.shopid=shopId
 AND x.goodsid=y.goodsid AND 
 x.flag=1 AND z.shopid=shopId and z.Classtype=y.classtype and 
 SUBSTR(z.orderdate,(dayofweek(thisday)+5)mod 7+1,1)='1' AND 
-IF(z.Weekflag=2,z.Startweek mod 2=WEEKOFYEAR(today)mod 2,1);  
-
+IF(z.Weekflag=2,z.Startweek mod 2=WEEKOFYEAR(today)mod 2,1) and y.flag!=9;  
 
 END
