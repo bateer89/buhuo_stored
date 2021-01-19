@@ -8,16 +8,13 @@ DECLARE endOfthisSeasonvachar VARCHAR(255);
 #开始结束日期年份
 DECLARE yearOfthisSeasonbegin VARCHAR(255);
 DECLARE yearOfthisSeasonend VARCHAR(255);
-##短期促销时长
-declare abct_day int;
+
 ##促销计划最晚录入时间
 declare plan_day int;
-
+##是否有首次补货
 declare isholiday int;
 select value into isholiday from zn_param where id=6;
-
 select value into plan_day from zn_param where id=4;
-select value into abct_day from zn_param where id=5;
 
 SET today=thisDay;
 SET yearOfthisSeasonbegin=DATE_FORMAT(today,'%Y');
@@ -41,7 +38,6 @@ SET endOfthisSeason=str_to_date(endOfthisSeasonvachar,'%Y-%m-%d');
 
 
 # 首次发现促销品补货
-#开始促销商品补货：到《补货系统促销明细》检查该门店是否有新的促销商品，首次发现促销商品（flag=0）马上触发促销商品的补货：
 
 # a0.《补货系统促销明细》中manual_flag=1的商品:补货数量=采购分货数量 
 #--如果 采购分货数量=0则  《补货系统促销明细》 flag=0  保持不变并更新日期。
@@ -78,6 +74,7 @@ end if;
 
 
 #a. 《补货系统促销明细》中manual_flag=0的商品:取出补货类别：到zn_goods中取classtype、minorder、minstock、closeqty等，根据补货类别可以取出补货周期、安全库存天数、到货周期。
+DROP TABLE IF EXISTS `tmp_prom_tmp`;
 CREATE TABLE IF NOT EXISTS `tmp_prom_tmp` (
   `goodsid` varchar(32) CHARACTER SET utf8mb4 DEFAULT NULL COMMENT '商品编码',
   `shopid` varchar(8) CHARACTER SET utf8mb4 DEFAULT NULL COMMENT '门店编码',
@@ -111,10 +108,25 @@ CREATE TABLE IF NOT EXISTS `tmp_prom_tmp` (
   `planqty` decimal(16,3) DEFAULT NULL,
   `flag` char(1) DEFAULT '0',
   `manual_flag` char(1) DEFAULT '0',
-  `dms` decimal(16,3) DEFAULT NULL COMMENT '实际售价对应的日均销量',
+  `dms` decimal(16,3) DEFAULT 0 COMMENT '实际售价对应的日均销量',
+  `prom_dms` decimal(16,3) DEFAULT 0 COMMENT '实际售价对应的日均销量',
   `leftsalingDays` int(11) DEFAULT NULL COMMENT '当前剩余可销天数',
   `need_replenishment` int(11) DEFAULT NULL COMMENT '需要补货',
   `weekflag_days` int(11) DEFAULT 0 COMMENT 'buhuozhouqi',
+   prom_id int(11),
+	`display_flag`  varchar(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT '0' COMMENT '0—默认值，1—场外  2—堆头  3—端头' ,
+	prom_begindate date,
+	prom_enddate date,
+	prom_days int(11) COMMENT '促销天数',
+	prom_alldays int(11) COMMENT 'orderdays+ Arrivaldays+ safedays',
+	prom_arriavedate date COMMENT '到货日',
+	orderdays int(11) COMMENT 'datediff(下一个补货日,当前日期)',
+	now_date date COMMENT '产生补货的日期',
+	received_date date COMMENT 'dateadd(now_date,arrivaldays-1)',
+	prom_day1 int(11) default 0 COMMENT 'max(min(datediff(enddate, received_date),alldays),0)',
+	prom_day2 int(11) COMMENT 'max(（alldays-促销DMS补货天数)，0）',
+	prom_flag int(11) COMMENT '促销补货标志位',
+  orderdate varchar(10),
   KEY `index_1` (`goodsid`,`shopid`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -123,7 +135,7 @@ TRUNCATE TABLE tmp_prom_tmp;
 INSERT INTO tmp_prom_tmp (goodsid,shopid,normalprice,classtype,minorder,minstock,closeqty,
 holiday_begindate,holiday_enddate,holidaytype,ho_rate,zs,xlid,seasontype,
 rate1,rate2,period1,period2,startweek,weekflag,safedays,arrivaldays,sdate,price,planqty,
-flag,manual_flag,weekflag_days,begindate,enddate,prom_id)
+flag,manual_flag,weekflag_days,prom_begindate,prom_enddate,prom_id,display_flag,orderdate,prom_day2)
 SELECT 
 zn_goods.goodsid AS goodsid,
 zn_goods.shopid AS shopid,
@@ -148,21 +160,27 @@ zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
 zn_goods.sdate AS sdate,
-zn_prom_detail.price AS price,
+case when zn_prom_detail.price>zn_goods.normalprice then zn_goods.normalprice else zn_prom_detail.price end AS price,
 zn_prom_detail.planqty AS planqty,
 zn_prom_detail.flag AS flag,
 zn_prom_detail.manual_flag AS manual_flag,
 DATEDIFF(get_next_buhuo_date(weekflag,zn_config.Orderdate,zn_config.Startweek,today),today) AS weekflag_days,
-zn_prom_detail.begindate as begindate,
-zn_prom_detail.enddate as enddate,
-zn_prom_detail.id as prom_id
+zn_prom_detail.begindate as prom_begindate,
+zn_prom_detail.enddate as prom_enddate,
+zn_prom_detail.id as prom_id,
+zn_prom_detail.display_flag as display_flag,
+zn_config.Orderdate as orderdate,
+DATEDIFF(get_next_buhuo_date(weekflag,zn_config.Orderdate,zn_config.Startweek,today),today)+zn_config.arrivaldays+zn_config.safedays as prom_day2
 FROM zn_goods,zn_config,zn_prom_detail
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND 
 zn_prom_detail.shopid=shopId AND zn_goods.goodsid=zn_prom_detail.goodsid AND 
 zn_prom_detail.manual_flag=0 AND zn_prom_detail.flag=0 AND zn_goods.flag=0 and
 zn_goods.classtype=zn_config.Classtype
- AND datediff(zn_prom_detail.begindate,today)<=plan_day and datediff(zn_prom_detail.begindate,today)>0
+ AND datediff(zn_prom_detail.begindate,today)<=plan_day
 ;
+
+
+#7-1 首先对新发现的促销品进行优化处理：到《补货系统促销明细》检查该门店是否有新的促销商品，首次发现促销商品（flag=0 and (促销开始日期-当前日期<7)）时首先处理同一个商品存在多条优惠的问题，即多条促销按照最新促销的补货: 根据zn_prom_detail.id判断先后顺序先后。检查促销表里是否还有这个门店这个单品的促销，若有则之前的促销结束日期改为min(新的促销开始日前一天与enddate) ，zn_prom_detail flag=4(被新的促销覆盖)表示以后不会按照这个价格去补货，但是在促销过期后要更新dms.
 
 ##多条促销按照最新促销的补货: 根据zn_prom_detail.id判断先后
 drop temporary table if exists tmp_prom1;
@@ -177,7 +195,7 @@ delete a from tmp_prom_tmp a join tmp_prom1 b on a.shopid=b.shopid and a.goodsid
 where a.prom_id!=b.prom_id;
 
 delete a from zn_prom_detail a join tmp_prom1 b on a.shopid=b.shopid and a.goodsid=b.goodsid 
-where a.id!=b.prom_id;
+where a.id!=b.prom_id and a.flag=0;
 
 
 ##查找正在进行的促销数据与首次补货促销数据重复部分
@@ -190,20 +208,26 @@ create temporary table tmp_prom(
 
 ##正在进行的促销数据更新结束日期和状态4
 update zn_prom_detail a join tmp_prom b on a.shopid=b.shopid and a.goodsid=b.goodsid
-set a.enddate=if(a.enddate<date_add(b.begindate,interval -1 day),a.enddate,date_add(b.begindate,interval -1 day)),a.flag=4
+set a.enddate=if(a.enddate<date_add(b.prom_begindate,interval -1 day),a.enddate,date_add(b.prom_begindate,interval -1 day)),a.flag=4
 where a.begindate<today;
 update zn_prom_detail_tmp a join tmp_prom b on a.shopid=b.shopid and a.goodsid=b.goodsid
-set a.enddate=if(a.enddate<date_add(b.begindate,interval -1 day),a.enddate,date_add(b.begindate,interval -1 day))
+set a.enddate=if(a.enddate<date_add(b.prom_begindate,interval -1 day),a.enddate,date_add(b.prom_begindate,interval -1 day))
 where a.begindate<today;
 
+#7-3、发现促销品则将促销品的补货类型设为A（补货类型为A代表最短的补货周期）：更新zn_goods中促销品的classtype=’A’
 ##根据参数判断是否需要首次补货
 if isholiday=0
 THEN
   delete a from tmp_prom_tmp a join zn_config b on a.shopid=b.shopid
   where b.classtype='A' and SUBSTR(b.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)!='1';
 
-	update tmp_prom_tmp a join zn_config b on a.shopid=b.shopid set a.classtype='A',a.Startweek=b.startweek,
-					a.weekflag=b.weekflag,a.safedays=b.safedays,a.arrivaldays=b.arrivaldays
+	update tmp_prom_tmp a join zn_config b on a.shopid=b.shopid set a.classtype='A',a.startweek=b.startweek,
+					a.weekflag=b.weekflag,a.safedays=b.safedays,a.arrivaldays=b.arrivaldays,a.orderdate=b.Orderdate
+	where b.classtype='A';
+
+	update tmp_prom_tmp set weekflag_days=DATEDIFF(get_next_buhuo_date(weekflag,Orderdate,Startweek,today),today);
+
+	update zn_goods a join tmp_prom_tmp b on a.shopid=b.shopid and a.goodsid=b.goodsid set a.classtype='A'
 	where b.classtype='A';
 else 
 	##更新越期商品的补货周期天数
@@ -213,43 +237,88 @@ else
 end if;
 
 
-##！！！
-##分段计算补货天数：促销品补货要根据促销时长采用促销DMS和正常价DMS分段补货，彻底解决短期促销无法补货和促销临近结束时补货量偏大的问题
+UPDATE tmp_prom_tmp x,zn_prom_detail p 
+SET x.prom_begindate=p.begindate,
+		x.prom_enddate=p.enddate,
+		x.prom_days=DATEDIFF(p.enddate,p.begindate)+1,
+		x.orderdays=DATEDIFF(get_next_buhuo_date(weekflag,Orderdate,Startweek,today),today),
+		x.prom_alldays=DATEDIFF(get_next_buhuo_date(weekflag,Orderdate,Startweek,today),today)+x.arrivaldays+x.safedays,
+		x.now_date=thisday,
+		x.prom_arriavedate=DATE_ADD(thisday,INTERVAL arrivaldays DAY),
+		x.received_date=DATE_ADD(thisday,INTERVAL x.arrivaldays-1 DAY),
+		x.prom_day1=0,
+		x.prom_day2=DATEDIFF(get_next_buhuo_date(weekflag,Orderdate,Startweek,today),today)+x.arrivaldays+x.safedays,
+		x.prom_flag=p.flag
+WHERE x.shopid=shopid AND p.shopid=shopid AND x.goodsid=p.goodsid ANd p.flag=0;
 
-
-# b. 取出日均销量：
-#--根据促销价格到zn_price_dms取出这些促销品对应的dms, 转c
-UPDATE tmp_prom_tmp x,zn_price_dms y
-SET x.dms=y.dms
-WHERE x.shopid=shopId AND y.shopid=shopId AND
-x.goodsid=y.goodsid AND (x.price/x.normalprice)*100>=y.disc1 AND 
-(x.price/x.normalprice)*100<y.disc2;
-
-
-#--如果在zn_xl_dms中仍然未找到DMS，zn_goods表flag=2 ,转h
-UPDATE zn_goods x,tmp_prom_tmp y
-SET x.flag=4,x.trueprice=y.price WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and ISNULL(y.dms) ;
-UPDATE zn_prom_detail a,tmp_prom_tmp y 
-SET a.flag=2,
-		a.sdate=today 
-WHERE a.shopid=shopId AND y.shopid=shopId AND a.goodsid=y.goodsid and ISNULL(y.dms);
-delete from tmp_prom_tmp where dms is null;
-
-
-##  Todo:更新首次补货记录?
-
-#c.根据节日属性和季节属性调整日均销量
-
-#--holidaytype=2春节其它商品, 当前日期>=begindate-6进入春节补货模式
-#--holidaytype=2春节其它商品, 当前日期>=enddate结束春节补货模式
-#春节期间日均销量==b取到的日均销量*zs*rate
+#7-7.采购不分货：《补货系统促销明细》中manual_flag=0的商品:取出补货类别：到zn_goods中取classtype、minorder、minstock、closeqty等，根据补货类别可以取出补货周期、安全库存天数、到货周期。
+#注意补货周期、到货周期的计算：
+#（1）今天与下一个补货日之间的天数<到货周期（这个参数变了，不是4了，意思就是在补货日补货不应该产生越期），下一个补货日不再补货，否则补货；
+#（2）春节初一至初三可以补货、但是不送货 
 UPDATE tmp_prom_tmp x 
-SET x.dms=x.dms*x.zs*x.ho_rate 
-WHERE x.holidaytype=2 AND date_add(x.holiday_begindate,interval -6 day)<=today AND 
-x.holiday_enddate>today;
+SET x.prom_day1=GREATEST(LEAST(DATEDIFF(x.prom_enddate,x.received_date),x.prom_alldays),0)
+WHERE x.shopid=shopid AND (x.prom_days>(x.arrivaldays+x.safedays)) AND NOT ISNULL(x.prom_begindate);
 
-#--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=b取到的日均销量*rate1，
-#在period2—enddate对应的日期之内时日均销量=b取到的日均销量*rate2转e
+UPDATE tmp_prom_tmp x 
+SET x.prom_day2=GREATEST((x.prom_alldays-x.prom_day1),0)
+WHERE x.shopid=shopid AND (x.prom_days>=(x.arrivaldays+x.safedays)) AND NOT ISNULL(x.prom_begindate);
+
+			#2、	促销天数<补货周期+到货周期 
+UPDATE tmp_prom_tmp x,zn_prom_detail p 
+SET x.prom_day1=CASE WHEN ((x.prom_begindate>x.prom_arriavedate)AND(p.flag=0))
+													THEN x.prom_days+x.safedays
+											ELSE 0 END,
+		p.flag=CASE WHEN ((x.prom_begindate>x.prom_arriavedate)AND(p.flag=0))
+													THEN 6
+											ELSE 0 END
+WHERE x.shopid=shopid AND p.shopid=shopid AND x.goodsid=p.goodsid AND (x.prom_days<(x.arrivaldays+x.safedays)) AND NOT ISNULL(x.prom_begindate);
+
+UPDATE tmp_prom_tmp x,zn_prom_detail p 
+SET x.prom_day2=x.prom_alldays-x.prom_day1
+WHERE x.shopid=shopid AND p.shopid=shopid AND x.goodsid=p.goodsid AND (x.prom_days<(x.arrivaldays+x.safedays)) AND NOT ISNULL(x.prom_begindate);
+
+
+#7-8. 取出日均销量：
+#--促销首次补货（zn_prom_detail.flag=0）时，促销DMS从zn_price_dms中取，
+#--促销非首次补货时（zn_prom_detail.flag<>0），首先从zn_prom_detail_tmp表中查找到对应的记录，如果totaldays>=7 则促销dms=totalqty/totaldays,否则到zn_price_dms中取出DMS
+#--根据定价到zn_price_dms取出这些商品对应的正常DMS。
+#--day2>0 并且未找到normalprice对应的dms或dms=0:说明是新品或者没有正常价销售过，zn_goods表Flag=5 (没有正常定价销售记录),转7-12
+#--day1>0 并且未找到当前售价对应的dms或dms=0 : zn_goods表Flag=4 (没有促销销售记录), 转7-12
+UPDATE tmp_prom_tmp x,zn_price_dms pd 
+SET x.dms=pd.dms
+WHERE x.shopid=shopid AND pd.shopid=shopid AND x.goodsid=pd.goodsid and pd.disc1=95;
+
+UPDATE tmp_prom_tmp x,zn_price_dms pd 
+SET x.prom_dms=pd.dms
+WHERE x.shopid=shopid AND pd.shopid=shopid AND x.goodsid=pd.goodsid and (x.price/x.normalprice)*100>=pd.disc1 AND 
+(x.price/x.normalprice)*100<pd.disc2 and x.display_flag=pd.display_flag;
+
+UPDATE zn_goods z,tmp_prom_tmp x 
+SET z.flag=5,z.trueprice=x.price
+WHERE z.shopid=shopid AND x.shopid=shopid AND z.goodsid=x.goodsid AND (ISNULL(x.dms)OR x.dms=0.0) AND x.prom_day2>0;
+UPDATE zn_prom_detail z,tmp_prom_tmp x 
+SET z.flag=2
+WHERE z.shopid=shopid AND x.shopid=shopid AND z.goodsid=x.goodsid AND (ISNULL(x.dms)OR x.dms=0.0) AND x.prom_day2>0 and x.flag=0;
+delete from tmp_prom_tmp where (ISNULL(dms)OR(dms=0.0)) AND prom_day2>0;
+
+UPDATE zn_goods x,tmp_prom_tmp y
+SET x.flag=4,x.trueprice=y.price WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and (ISNULL(y.prom_dms)OR(y.prom_dms=0.0)or(y.prom_dms=-0.1)) ;
+UPDATE zn_prom_detail x,tmp_prom_tmp y
+SET x.flag=2 WHERE x.shopid=shopid and y.shopid=shopid and x.goodsid=y.goodsid and (ISNULL(y.prom_dms)OR(y.prom_dms=0.0)or(y.prom_dms=-0.1)) and x.flag=0 ;
+delete from tmp_prom_tmp where (ISNULL(prom_dms)OR(prom_dms=0.0)or(prom_dms=-1.0)) and prom_day1>0;
+
+
+#7-9根据节日属性和季节属性调整日均销量
+#--holidaytype=2春节其它商品, 当前日期>=begindate-6进入春节补货模式 
+#--holidaytype=2春节其它商品, 当前日期>=enddate结束春节补货模式
+#春节期间日均销量==m取到的2个日均销量*zs*rate  转o
+#--seasontype=1季节性商品 并且 当前日期在period1—period2对应的日期之内时修订日均销量，日均销量=m取到的2个日均销量*rate1，在period2—enddate对应的日期之内时日均销量=m取到的2个日均销量*rate2转7-10
+UPDATE tmp_prom_tmp x 
+SET x.dms=x.dms*x.zs*x.ho_rate, 
+		x.prom_dms=x.prom_dms*x.zs*x.ho_rate 
+WHERE x.holidaytype=2 AND x.holiday_begindate<=today AND 
+x.holiday_enddate>=today;
+
 UPDATE tmp_prom_tmp x join zn_season_goods y on x.shopid=y.shopid and x.goodsid=y.goodsid
 SET x.dms=CASE WHEN DATE_ADD(concat(year(CURDATE()),'-',y.begindate),INTERVAL 
 (DATEDIFF(if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)),concat(year(CURDATE()),'-',y.begindate))*x.period1/100) 
@@ -257,63 +326,56 @@ DAY)<today and today<if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.endda
 							 WHEN DATE_ADD(concat(year(CURDATE()),'-',y.begindate),INTERVAL 
 (DATEDIFF(if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)),concat(year(CURDATE()),'-',y.begindate))*x.period2/100) 
 DAY)<today and today<if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)) THEN x.dms*x.rate2/100.0 
-else x.dms END
+else x.dms END,
+x.prom_dms=CASE WHEN DATE_ADD(concat(year(CURDATE()),'-',y.begindate),INTERVAL 
+(DATEDIFF(if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)),concat(year(CURDATE()),'-',y.begindate))*x.period1/100) 
+DAY)<today and today<if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)) THEN x.prom_dms*x.rate1/100.0 
+							 WHEN DATE_ADD(concat(year(CURDATE()),'-',y.begindate),INTERVAL 
+(DATEDIFF(if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)),concat(year(CURDATE()),'-',y.begindate))*x.period2/100) 
+DAY)<today and today<if(y.begindate<y.enddate,concat(year(CURDATE()),'-',y.enddate),concat(year(curdate())+1,'-',y.enddate)) THEN x.prom_dms*x.rate2/100.0 
+else x.prom_dms END
 WHERE x.seasontype=1;
 
 
-#下面为春节其它商品在春节期间需要调整补货周期、到货周期的规则：
-#F2 :一般春节初一至初三不送货（参数控制），因此春节期间最后一个补货日会涉及越期订货问题：到货日期在begindate至enddate之间的最大到货日期对应的补货应该为越期补货
-#F3:B、C类商品按照A类商品的规则补货：当前日期>=begindate-6 按照A类订货周期订货
-#F4:B、C类商品退出A类商品的规则补货：春节结束后第一个补货日仍然按照A类的补货日进行补货，但是补货周期转成B或C类。
-#---T类商品：这个特殊并且量不大，应该按照BC类处理或者按照正常方式补货都行。
-#注意补货周期、到货周期的计算：
-#（1）今天与下一个补货日之间的天数<4，下一个补货日不再补货，否则补货；
-#（2）春节初一至初三可以补货、但是不送货。
-#需要补货转g,不需要补货转h
-##CALL everyday_procedure_springfestival(shopId,thisDay);
-
-#g．确定补货量：
-#理论补货量1=（补货周期+安全库存天数+到货周期）*日均销量 - 当前库存
+#7-10．确定补货量：
+#理论补货量1=促销DMS补货天数day1*促销dms+非促销补货天数day2*非促销dms  - 当前库存
 #理论补货量2=系统设定的最小库存-当前库存
+#If  理论补货量2<0  and理论补货量1 < 最小订货量 then不需要补货
+#Else  需要补货。
 #理论补货量3=max(理论补货量2, 最小订货量)
-#理论补货量=max(理论补货量1, 理论补货量3)
-#理论补货量<最小订货量时不需要补货，否则需要补货。
-#实际补货数量=（（理论补货量/最小起订量）向上取整）*最小起订量。
+#理论补货量 =max(理论补货量1, 理论补货量3)
+#实际补货数量=（（理论补货量/最小订货量）向上取整）*最小订货量。
+#end
 UPDATE tmp_prom_tmp x 
-SET x.actual_qty=CASE WHEN 
-((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)>=(x.minstock-x.closeqty)
-AND ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)>0
-and  ((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)>=x.minorder
-													THEN CEILING(((x.arrivaldays+x.safedays+x.weekflag_days)*x.dms-x.closeqty)/x.minorder)*x.minorder
-											WHEN
-(x.minstock-x.closeqty)>0
-													THEN CEILING((x.minstock-x.closeqty)/x.minorder)*x.minorder
-ELSE 0 END;
+SET x.actual_qty=CASE WHEN ((x.prom_day1*x.prom_dms+x.prom_day2*x.dms-x.closeqty<x.minorder) AND (x.minstock<=x.closeqty))
+														THEN 0.0
+														ELSE CEILING(GREATEST(x.prom_day1*x.prom_dms+x.prom_day2*x.dms-x.closeqty,x.minstock-x.closeqty,x.minorder)/x.minorder)*x.minorder END; 
 
 
-#h.更新zn_goods表qty、flag、sdate字段;
-#h.更新zn_goods表qty、flag、sdate字段;
+#7-11更新zn_goods表qty、flag=9（促销首次补货）
 UPDATE zn_goods x,tmp_prom_tmp y
 SET x.flag=9,
 x.qty=y.actual_qty,
 x.trueprice=y.price,
-x.sdate=today
+x.sdate=now()
  WHERE x.shopid=shopId AND y.shopid=shopId AND
 x.goodsid=y.goodsid;
 
-#在《补货系统促销明细》中为该商品打标“1越期促销补货”或“2可以补货”并更新日期.
+
+#7-12更新zn_goods表sdate字段;在《补货系统促销明细》中为该商品打标“1越期促销补货”或“2可以补货”并更新日期sdate字段
 UPDATE zn_prom_detail a,tmp_prom_tmp y
 SET a.flag=2,
-		a.sdate=today
-WHERE a.shopid=shopId AND y.shopid=shopId AND a.begindate=y.begindate and a.enddate=y.enddate and
+		a.sdate=now()
+WHERE a.shopid=shopId AND y.shopid=shopId AND a.begindate=y.prom_begindate and a.enddate=y.prom_enddate and
 a.goodsid=y.goodsid;
+
 
 if isholiday=1
 then
 	UPDATE zn_prom_detail a,tmp_prom_tmp y,zn_config z
 	SET a.flag=1,
-			a.sdate=today
-	WHERE a.shopid=shopId AND y.shopid=shopId AND a.begindate=y.begindate and a.enddate=y.enddate and
+			a.sdate=now()
+	WHERE a.shopid=shopId AND y.shopid=shopId AND a.begindate=y.prom_begindate and a.enddate=y.prom_enddate and
 	a.goodsid=y.goodsid and z.shopid=shopId and y.classtype=z.Classtype and DATEDIFF(get_next_buhuo_date(z.weekflag,z.Orderdate,z.Startweek,today),today)<y.arrivaldays
 	;
 end if;
