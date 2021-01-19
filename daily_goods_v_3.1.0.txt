@@ -1,3 +1,4 @@
+CREATE DEFINER=`root`@`%` PROCEDURE `daily_goods`(IN `shopId` varchar(64),IN `thisDay` date)
 BEGIN
 # 定义当前时间
 DECLARE today date;
@@ -31,19 +32,17 @@ SET chuyi=DATE_ADD(springfestivalend,INTERVAL 1 DAY);
 # 并且stocktype=0(管库存)的商品进入此表并对T类商品进行标注
 # （classtype=’T’），除T类外默认为C类。
 #TRUNCATE zn_goods;
-INSERT INTO zn_goods (shopid,shopname,xlid,goodsid,goodsname,venderid,classtype,normalprice,spec,flag,sdate,trueprice)
+INSERT INTO zn_goods (shopid,shopname,xlid,goodsid,goodsname,classtype,normalprice,flag,sdate,trueprice)
 SELECT
 `v_zn_goodsshop`.`shopid` AS `shopid`,
 `v_zn_goodsshop`.`shopname`,
 `v_goods`.`deptid` AS `xlid`,
 `v_zn_goodsshop`.`goodsid` AS `goodsid`,
 `v_zn_goodsshop`.`goodsname`,
-v_zn_goodsshop.venderid,
 'C' AS `classtype`,
 `v_zn_goodsshop`.`normalprice` AS  `normalprice`,
-v_goods.spec as spec,
 '0' AS `flag`,
-now() AS `sdate`,
+today AS `sdate`,
 `v_zn_goodsshop`.`normalprice` AS  `trueprice`
 FROM 
 v_zn_goodsshop,v_goods
@@ -51,23 +50,14 @@ WHERE
 v_zn_goodsshop.shopid=shopId AND v_zn_goodsshop.stocktype=0 AND v_zn_goodsshop.flag in (0,8,9) AND 
 v_zn_goodsshop.goodsid = v_goods.goodsid AND v_goods.flag=0;
 
-##更新供应商编码和配送状态
-update zn_goods a join v_vender b on a.venderid=b.venderid set a.vendername=b.vendername,a.send_type=b.send_type;
-
 ##更新采购线id
-update zn_goods a join v_zn_cg_dl_zl_xl b on a.xlid=b.xlid set a.cgid=b.cgid,a.xlname=b.xlname;
+update zn_goods a join v_zn_cg_dl_zl_xl b on a.xlid=b.xlid set a.cgid=b.cgid;
+##对T类商品进行标注(v_tgoods)
 
-##对T类商品进行标注(v_tgoods),并删除T类商品
 UPDATE zn_goods a,v_tgoods b 
 SET a.classtype='T' 
 WHERE a.shopid=shopId AND a.goodsid=b.goodsid;
 
-delete from zn_goods where classtype='T';
-
-##
-##update zn_goods a join zn_config_v b
-##on a.shopid=b.shopid and a.venderid=b.venderid and a.classtype=b.classtype
-##set a.orderdate=b.Orderdate,a.weekflag=b.Weekflag,a.safedays=b.Safedays,a.startweek=b.Startweek,a.round_rule=b.round_rule
 
 ##############10min#############
 #c 更新zn_goods表Minstock、minorder字段
@@ -92,6 +82,7 @@ WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
 UPDATE zn_goods a,zn_season_xl b 
 SET 
 a.seasontype=1,
+a.arrdate=b.arrdate,
 a.rate1=b.rate1,
 a.rate2=b.rate2,
 a.period1=b.period1,
@@ -105,8 +96,12 @@ WHERE a.shopid=shopId AND a.xlid=b.xlid;
 
 DROP TABLE IF EXISTS tmp_everyday_holiday1;
 CREATE TABLE tmp_everyday_holiday1 AS
-SELECT goodsid AS goodsid,xlid AS xlid 
-FROM zn_holiday_goods WHERE begindate<=today AND enddate>today;   ##控制zn_calendar的年份
+SELECT 
+zn_holiday_goods.goodsid AS goodsid,
+zn_holiday_goods.xlid AS xlid 
+FROM zn_calendar,zn_holiday_goods WHERE (zn_holiday_goods.holidayid+0)=(zn_calendar.holidayid+0) AND 
+zn_calendar.startdate<=today AND zn_calendar.enddate>today AND 
+YEAR(zn_calendar.sundate)=YEAR(thisday);   ##控制zn_calendar的年份
 ALTER TABLE tmp_everyday_holiday1 ADD INDEX index_1(goodsid);
 
 UPDATE zn_goods JOIN tmp_everyday_holiday1 x
@@ -148,15 +143,11 @@ DELETE FROM zn_season_across WHERE concat(year(today),'-',zn_season_across.begin
 
 
 #closeqty 赋值
-UPDATE zn_goods a, v_shopsstock b 
+UPDATE zn_goods a, v_shopsstock b
 SET a.closeqty=b.qty,
 		a.flag=CASE WHEN b.qty<0 THEN 7 
-								ELSE a.flag END 
+								ELSE a.flag END
 WHERE a.shopid=shopId AND b.shopid=shopId AND a.goodsid=b.goodsid;
-
-update zn_goods a join v_isstore b on a.shopid=b.shopid and a.cgid=b.cgid and a.venderid=b.venderid
-set a.storeqty=0;
-update zn_goods a join v_stock_store b on a.goodsid=b.goodsid set a.storeqty=b.qty where a.storeqty=0;
 
 
 END
