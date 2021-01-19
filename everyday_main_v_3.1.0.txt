@@ -4,21 +4,61 @@ BEGIN
 	DECLARE hasData int;
 	DECLARE amount int;
 	DECLARE amount2 int;
+	##ABC分类需要销售数据的时长
+  declare  week_num int;
     -- 定义游标，并将sql结果集赋值到游标中
-  DECLARE report CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
+  DECLARE report CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq where v_zn_md_yt_ywq.shopid='1180'; 
+##WHERE v_zn_md_yt_ywq.shopid=1110
     -- 定义游标，并将sql结果集赋值到游标中
-  DECLARE report2 CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
+  DECLARE report2 CURSOR FOR select v_zn_md_yt_ywq.shopid from v_zn_md_yt_ywq where v_zn_md_yt_ywq.shopid='1180'; 
+##WHERE v_zn_md_yt_ywq.shopid=1110
 
     -- 声明当游标遍历完后将标志变量置成某个值
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET s=1;
+  
+	select value into week_num from zn_param where id=1;
+  ##ABC分类
+	CALL proc_dms1 (thisday,week_num);
+	#CALL proc_classify (thisday,week_num);
+  
+	delete from zn_goods_his_man where date_format(sdate,'%Y-%m-%d')=date_add(thisday,INTERVAL -1 day);
+	INSERT INTO zn_goods_his_man( shopid, xlid, goodsid,goodsname, venderid,vendername,send_type,classtype, normalprice,spec, minstock , minorder , closeqty , qty ,manual_qty, flag , sdate, holiday_begindate , seasontype , holidaytype , holiday_enddate , rate , zs ,ho_rate,trueprice,display_flag,storeqty)
+	SELECT  x.shopid            AS shopid
+				,x.xlid              AS xlid
+				,x.goodsid           AS goodsid
+				,x.goodsname         as goodsname
+        ,x.venderid          as venderid
+				,x.vendername        as vendername
+				,x.send_type         as send_type
+				,x.classtype         AS classtype
+       ,x.normalprice       AS normalprice
+       ,x.spec              as spec
+       ,x.minstock          AS minstock
+       ,x.minorder          AS minorder
+       ,x.closeqty          AS closeqty
+       ,x.qty               AS qty
+       ,x.manual_qty        AS manual_qty
+       ,x.flag              AS flag
+       ,now()            AS sdate
+       ,x.holiday_begindate AS holiday_begindate
+       ,x.seasontype        AS seasontype
+       ,x.holidaytype       AS holidaytype
+       ,x.holiday_enddate   AS holiday_enddate
+       ,x.rate              AS rate
+       ,x.zs                AS zs
+       ,x.ho_rate           AS ho_rate
+			,x.trueprice as trueprice
+			,x.display_flag as display_flag
+			,x.storeqty as storeqty
+FROM zn_goods x; 
 
-		
-	#TRUNCATE TABLE zn_goods;
-
+	TRUNCATE TABLE zn_goods;
+ 
 	#处理每日将上一日的促销保存到zn_prom_tmp
-	CALL everyday_before_dms(thisday);
+CALL everyday_before_dms(thisday);
 
-	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount FROM v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
+	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount FROM v_zn_md_yt_ywq where v_zn_md_yt_ywq.shopid='1180'; 
+##WHERE v_zn_md_yt_ywq.shopid=1110
     -- 打开游标
     open report;
  
@@ -42,14 +82,9 @@ BEGIN
     close report;
 		
 
-
-		#每日dms结束后处理
-		#call everyday_dms_end();
-
-
-
 #每日补货
-	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount2 FROM v_zn_md_yt_ywq WHERE v_zn_md_yt_ywq.shopid!=1110;
+	SELECT COUNT(v_zn_md_yt_ywq.shopid) INTO amount2 FROM v_zn_md_yt_ywq where v_zn_md_yt_ywq.shopid='1180'; 
+##WHERE v_zn_md_yt_ywq.shopid=1110
 
     -- 打开游标
     open report2;
@@ -73,10 +108,14 @@ BEGIN
 							end while loop1;
     -- 关闭游标
     close report2;
-
 		
-CALL everyday_goods_2_his(thisday);
-TRUNCATE TABLE zn_goods;
+    ##对T类商品进行补货
+		call daily_procedure_T(thisday);
+		##生成权限
+		call proc_chaoshi_organ();
+    CALL everyday_goods_2_his(thisday);
 
+		delete from zn_goods where flag in(0,7,8,10);
+    delete from zn_goods where flag in(1,3,6,9,13) and qty=0;
 
 END
