@@ -8,13 +8,17 @@ DECLARE endOfthisSeasonvachar VARCHAR(255);
 #开始结束日期年份
 DECLARE yearOfthisSeasonbegin VARCHAR(255);
 DECLARE yearOfthisSeasonend VARCHAR(255);
+##季节性商品首次补货条件
+declare beforeseason int;
+##季节性商品首次补货时长
+declare season_week int;
+
+declare isholiday int;
+select value into isholiday from zn_param where id=6;
 #######---------------------Step3-------------------
+select value into beforeseason from zn_param where id=2;
+select value into season_week from zn_param where id=3;
 
-
-DECLARE 3MonthEarlier date;
-
-
-#######---------------------Step3-------------------
 SET today=thisDay;
 SET yearOfthisSeasonbegin=DATE_FORMAT(today,'%Y');
 SET yearOfthisSeasonend=CAST(CAST(yearOfthisSeasonbegin AS SIGNED)+1 AS CHAR(255));
@@ -35,8 +39,6 @@ SET endOfthisSeasonvachar=CASE WHEN
 SET beginOfthisSeason=str_to_date(beginOfthisSeasonvachar,'%Y-%m-%d');
 SET endOfthisSeason=str_to_date(endOfthisSeasonvachar,'%Y-%m-%d');
 #######---------------------Step3-------------------
-
-SET 3MonthEarlier=DATE_add(today,INTERVAL 30 DAY); 
 
 
 
@@ -85,12 +87,18 @@ FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND zn_goods.classtype=zn_config.Classtype AND
 zn_goods.seasontype=1 and zn_goods.flag=0;
 
+##根据参数判断是否有首次补货
+if isholiday=0
+THEN
+	delete a from tmp_season_tmp a join zn_config b on a.shopid=b.shopid
+  where b.Classtype='A' and SUBSTR(b.Orderdate,(dayofweek(thisday)+5)mod 7+1,1)!='1';
+end if;
 # 		Step2 满足以下2个条件进行季节性商品首次季节补货：
 #1：季节性商品季节开始日期>当前日期>季节性商品季节开始日期-30天
 DELETE tmp_season_tmp FROM tmp_season_tmp,zn_season_goods
 		WHERE tmp_season_tmp.shopid=shopId AND zn_season_goods.shopid=shopId AND
 		tmp_season_tmp.goodsid=zn_season_goods.goodsid AND
-		NOT (zn_season_goods.begindate>DATE_FORMAT(today,'%m-%d') AND DATE_ADD(concat(year(today),'-',zn_season_goods.begindate),INTERVAL -30 day)<today);
+		NOT (zn_season_goods.begindate>DATE_FORMAT(today,'%m-%d') AND DATE_ADD(concat(year(today),'-',zn_season_goods.begindate),INTERVAL -beforeseason day)<today);
 
 
 #2：没有进行过首次补货：zn_season_across没有这条商品记录
@@ -102,9 +110,9 @@ x.goodsid=y.goodsid;
 update tmp_season_tmp a join zn_season_goods b on a.shopid=b.shopid and a.goodsid=b.goodsid set a.avg_qty_day=b.avg_qty_day;
 ###理论补货量=该商品前三年季节期间日销量的平均值*2周 - 当前库存
 UPDATE tmp_season_tmp 
-SET theoritical_qty=avg_qty_day*14-closeqty,
-actual_qty=CASE WHEN (avg_qty_day*14-closeqty<minorder) THEN 0.0
-											ELSE (CEILING((avg_qty_day*14-closeqty)/minorder)*minorder) END;
+SET theoritical_qty=avg_qty_day*season_week*7-closeqty,
+actual_qty=CASE WHEN (avg_qty_day*season_week*7-closeqty<minorder) THEN 0.0
+											ELSE (CEILING((avg_qty_day*season_week*7-closeqty)/minorder)*minorder) END;
 
 #理论补货量<最小订货量时不需要补货，否则需要补货。
 #更新zn_goods表qty、flag、sdate字段;qty dec（16，3）default  0 ---计算生成的补货数量
