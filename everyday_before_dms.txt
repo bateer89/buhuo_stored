@@ -4,21 +4,31 @@ BEGIN
 	SET today=thisDay;
 
 	INSERT INTO zn_prom_detail_tmp(planid,planname,begindate,enddate,
-						shopid,goodsid,price,planqty,sdate)
+						shopid,goodsid,price,planqty,sdate,display_flag)
 	SELECT 
 	#zn_prom_detail.serialid
-	zn_prom_detail.planid,
-	zn_prom_detail.planname,
-	zn_prom_detail.begindate,
-	zn_prom_detail.enddate,
-	zn_prom_detail.shopid,
-	zn_prom_detail.goodsid,
-	zn_prom_detail.price,
-	zn_prom_detail.planqty,
+	a.planid,
+	a.planname,
+	a.begindate,
+	a.enddate,
+	a.shopid,
+	a.goodsid,
+	a.price,
+	a.planqty,
 	#zn_prom_detail.manual_flag,
-	today AS sdate
-	FROM zn_prom_detail WHERE zn_prom_detail.enddate<today;
-
+	now() AS sdate,
+  a.display_flag
+	FROM zn_prom_detail a
+	WHERE a.begindate<=today
+  ON DUPLICATE KEY UPDATE 
+	zn_prom_detail_tmp.begindate=VALUES(begindate),
+	zn_prom_detail_tmp.enddate=VALUES(enddate),
+	zn_prom_detail_tmp.shopid=VALUES(shopid),
+	zn_prom_detail_tmp.goodsid=VALUES(goodsid),
+	zn_prom_detail_tmp.price=VALUES(price),
+	zn_prom_detail_tmp.planqty=VALUES(planqty),
+	zn_prom_detail_tmp.sdate=values(sdate),
+  zn_prom_detail_tmp.display_flag=values(display_flag);
 
 	DELETE FROM zn_prom_detail
 	WHERE zn_prom_detail.enddate<today;
