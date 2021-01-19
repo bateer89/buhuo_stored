@@ -17,10 +17,7 @@ SET springFestivalEnd=(SELECT zn_calendar.enddate FROM zn_calendar WHERE zn_cale
 #如果正常售价变化要更新，价格段也要随之进行调整。
 
 #a1 春节期间所有商品在节日期间停止更新dms
-IF (thisDay<=springFestivalEnd AND thisDay>=springFesitvalBegin) THEN 
-	select springFesitvalBegin,springFestivalEnd;
-ELSE
-	CALL daily_dms_sub(shopId,thisDay);
+IF NOT(thisDay<=springFestivalEnd AND thisDay>=springFesitvalBegin) THEN CALL daily_dms_sub(shopId,thisDay);
 END IF;
 
 
