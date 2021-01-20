@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS `tmp_season_tmp` (
   `minorder` decimal(16,2) DEFAULT NULL COMMENT '最小起订量',
   `minstock` decimal(16,2) DEFAULT NULL COMMENT '最小库存数量',
   `closeqty` decimal(16,3) DEFAULT NULL COMMENT '昨日日终库存数量',
+	`venderid`  varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '供货商id',
   `weekflag` char(1) CHARACTER SET utf8 DEFAULT NULL,
   `safedays` int(11) DEFAULT NULL,
   `arrivaldays` int(11) DEFAULT NULL,
@@ -70,7 +71,7 @@ CREATE TABLE IF NOT EXISTS `tmp_season_tmp` (
 
 TRUNCATE TABLE tmp_season_tmp;
 
-INSERT INTO tmp_season_tmp (goodsid,shopid,classtype,minorder,minstock,closeqty,
+INSERT INTO tmp_season_tmp (goodsid,shopid,classtype,minorder,minstock,closeqty,venderid,
 weekflag,safedays,arrivaldays,sdate)
 SELECT 
 zn_goods.goodsid AS goodsid,
@@ -79,6 +80,7 @@ zn_goods.classtype AS classtype,
 zn_goods.minorder AS minorder,
 zn_goods.minstock AS minstock,
 zn_goods.closeqty AS closeqty,
+zn_goods.venderid AS venderid,
 zn_config.weekflag AS weekflag,#补货周期
 zn_config.safedays AS safedays,#安全库存天数
 zn_config.arrivaldays AS arrivaldays,#到货周期
@@ -86,6 +88,15 @@ zn_goods.sdate AS sdate
 FROM zn_goods,zn_config
 WHERE zn_goods.shopid=shopId AND zn_config.shopid=shopId AND zn_goods.classtype=zn_config.Classtype AND
 zn_goods.seasontype=1 and zn_goods.flag=0;
+
+
+#更新供货商信息
+UPDATE tmp_season_tmp x,zn_config_v v 
+SET x.weekflag=v.Weekflag,
+		x.safedays=v.Safedays,
+		x.arrivaldays=v.Arrivaldays
+WHERE v.Shopid=shopid AND v.venderid=x.venderid AND v.Classtype=x.classtype;
+
 
 ##根据参数判断是否有首次补货
 if isholiday=0
@@ -137,8 +148,8 @@ a.goodsid AS goodsid,
 thisday AS firstdate,
 date_add(thisday,interval arrivaldays+1 day) AS nextdate,
 b.begindate AS begindate,
-thisday as sdate
-FROM tmp_season_tmp a join zn_season_goods b on a.shopid=b.shopid and a.goodsid=b.goodsid
+thisday as sdate 
+FROM tmp_season_tmp a join zn_season_goods b on a.shopid=b.shopid and a.goodsid=b.goodsid 
 ON DUPLICATE KEY UPDATE
 zn_season_across.shopid=VALUES(shopid),
 zn_season_across.goodsid=VALUES(goodsid),
