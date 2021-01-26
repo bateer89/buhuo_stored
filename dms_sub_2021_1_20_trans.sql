@@ -1,18 +1,16 @@
 BEGIN
-DECLARE 2WeeksBefore date;
 DECLARE today date;
+declare springed date;
 DECLARE changeday date;
-
 SELECT  version()
        ,@@sql_mode;
 
-SET changeday='2021-1-18';
 SET sql_mode=(
 SELECT  REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY','')); ##CALL classify_new();
 SET today=thisDay;
-SET 2WeeksBefore=DATE_SUB(today,INTERVAL 14 DAY);
-
+SET changeday='2021-1-18';
 #CALL proc_tmpdayly(DATE_SUB(thisDay,INTERVAL 2 DAY),thisDay);
+select enddate into springed from zn_calendar where holidayid='01' and year(sundate)=year(today);
 
 drop temporary table if exists tmp_dms1;
 create temporary table tmp_dms1(
@@ -23,8 +21,6 @@ join zn_dms_week d on c.cgid=d.cgid
 create unique index index_1 on tmp_dms1(goodsid);
 #a. 用zn_daly_sales近2周数据计算正常售价（ zlprice /normalprice>=0.95）的日均销量=2周正常售价销售数量/（14-促销有销售周天数）。
 #更新zn_price_dms中正常售价对应的dms
-
-
 
 #计算价格段(全部数据，未groupby)
 DROP TABLE IF EXISTS tmp_everyday_dms_0;
@@ -60,7 +56,7 @@ INSERT INTO `tmp_everyday_dms_0`
 `normalprice`,
 `qty`,
 `sdate`,
-`zkb` , `stock`)
+`zkb`,`stock`)
 SELECT  x.shopid                                                                   AS shopid
        ,x.shopname                                                                 AS shopname
        ,x.goodsid                                                                  AS goodsid
@@ -73,10 +69,15 @@ SELECT  x.shopid                                                                
        ,x.qty			                                                                 AS qty
        ,x.sdate                                                                    AS sdate
        ,getZKB(x.zlprice,x.normalprice)                                            AS zkb
-       ,x.stock                   												                         AS stock
+       ,x.`stock`                                            AS `stock`
 FROM zn_dayly_sales x join tmp_dms1 d on x.goodsid=d.goodsid
-WHERE x.shopid=shopId AND x.sdate<today AND x.sdate>=DATE_SUB(today,INTERVAL d.weeknum*7 DAY) AND stock<>0.0;
+WHERE  x.sdate<today and x.sdate>=DATE_SUB(today,INTERVAL if(datediff(today,springed)<d.weeknum*7 and datediff(today,springed)>0,floor(datediff(today,springed)/7)*7,d.weeknum*7) DAY) 
+AND x.shopid=shopId;
 
+##节日专属商品节日期间停止更新dms
+/*delete a from tmp_everyday_dms_0 a join v_zn_md_yt_ywq b on a.shopid=b.shopid join zn_holiday_goods c on b.ywqid=c.ywqid and a.goodsid=c.goodsid and c.holidayid!='01'
+join zn_calendar d on c.holidayid=d.holidayid and year(d.sundate)=year(today)
+where d.begindate<=today and d.enddate>=today;*/
 
 #每个价格段汇总，取主力售价对应的销售最多的
 DROP TABLE IF EXISTS tmp_everyday_dms_00;
@@ -116,6 +117,13 @@ GROUP BY x.shopid
          ,x.goodsid
          ,x.zkb
 				 ,x.zlprice;
+create index index_2 on tmp_everyday_dms_00(shopid,goodsid,zkb,zlprice,qty);
+
+drop temporary table if exists tmp_1;
+create temporary table tmp_1(
+	select shopid,goodsid,zkb,zlprice,max(qty) as mqty from tmp_everyday_dms_00 group by shopid,goodsid,zlprice,zkb
+);
+create unique index index_k on tmp_1(shopid,goodsid,zkb,zlprice,mqty);
 
 DROP TABLE IF EXISTS tmp_everyday_dms_000;
 CREATE TABLE `tmp_everyday_dms_000` (
@@ -146,18 +154,93 @@ SELECT
 #       ,0																						                               AS disc
        ,x.zlprice		               		                                             AS zlprice
 #       ,x.normalprice                                                              AS normalprice
-       ,SUM(x.qty)	                                                               AS qty
+       ,x.qty	                                                               AS qty
 #       ,x.sdate                                                                    AS sdate
        ,x.zkb													                                             AS zkb
-FROM tmp_everyday_dms_00 x 
-WHERE x.qty in (SELECT MAX(qty) FROM tmp_everyday_dms_00 y WHERE x.shopid=y.shopid AND x.goodsid=y.goodsid AND x.zkb=y.zkb 
-GROUP BY shopid,goodsid,zkb) 
-GROUP BY x.shopid 
-         ,x.goodsid 
-         ,x.zkb;
+FROM tmp_everyday_dms_00 x join tmp_1 y on x.shopid=y.shopid and x.goodsid=y.goodsid and x.zkb=y.zkb and x.zlprice=y.zlprice and x.qty=y.mqty;
+
+
+
+#主力价格回插
+UPDATE tmp_everyday_dms_0 x LEFT JOIN tmp_everyday_dms_000 y ON x.shopid=shopid AND y.shopid=shopid 
+AND x.goodsid=y.goodsid AND x.zkb=y.zkb 
+SET x.zlprice=y.zlprice;
 
 
 #汇总
+
+####new
+DROP TABLE IF EXISTS tmp_everyday_tmp_tmp_1;
+CREATE TABLE tmp_everyday_tmp_tmp_1 (
+shopid  varchar(8) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
+shopname  varchar(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
+goodsid  varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
+goodsname  varchar(64) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
+salevalue  decimal(16,2) NULL DEFAULT NULL ,
+discvalue  decimal(16,2) NULL DEFAULT NULL ,
+disc  decimal(16,2) NULL DEFAULT NULL ,
+zlprice  decimal(16,2) NULL DEFAULT NULL ,
+normalprice  decimal(16,2) NULL DEFAULT NULL ,
+qty  decimal(16,3) NULL DEFAULT NULL ,
+sdate  date NULL DEFAULT NULL ,
+zkb  decimal(16,2) NULL DEFAULT NULL ,
+dayNumber  int DEFAULT 0 ,
+discDayNumber  int DEFAULT 0 ,
+INDEX index_1 (shopid, goodsid, zkb) USING BTREE ,
+INDEX `index_2` (`shopid`, `goodsid`, `zlprice`) USING BTREE  
+)
+ENGINE=InnoDB 
+DEFAULT CHARACTER SET=utf8 COLLATE=utf8_general_ci 
+ROW_FORMAT=DYNAMIC;
+INSERT INTO tmp_everyday_tmp_tmp_1(shopid, shopname, goodsid, goodsname, salevalue, 
+discvalue, disc, zlprice, normalprice, qty, sdate, zkb, dayNumber, discDayNumber)
+SELECT  x.shopid                                                                   AS shopid
+       ,x.shopname                                                                 AS shopname
+       ,x.goodsid                                                                  AS goodsid
+       ,x.goodsname                                                                AS goodsname
+       ,SUM(x.salevalue)                                                           AS salevalue
+       ,SUM(x.discvalue)                                                           AS discvalue
+       ,0																						                               AS disc
+       ,x.zlprice                                                                  AS zlprice
+       ,x.normalprice                                                              AS normalprice
+       ,SUM(x.qty)                                                                 AS qty
+       ,x.sdate                                                                    AS sdate
+       ,zkb														                                             AS zkb
+       ,COUNT(IF(x.zkb>=0.95,1,0))                                                 AS dayNumber
+       ,COUNT(1) 													 		 AS discDayNumber
+FROM tmp_everyday_dms_0 x,tmp_dms1 y 
+WHERE x.goodsid=y.goodsid AND 
+x.sdate>=changeday AND DATE(NOW())<DATE_ADD(changeday,INTERVAL 7*y.weeknum DAY) AND (x.zlprice>0.0 AND x.qty>0.0) 
+GROUP BY  x.shopid 
+         ,x.goodsid 
+         ,x.zlprice;
+
+DROP TABLE IF EXISTS tmp_everyday_tmp_tmp_2;
+CREATE TABLE `tmp_everyday_tmp_tmp_2` (
+`shopid`  varchar(8) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
+`goodsid`  varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NULL ,
+`zlprice`  decimal(16,2) NULL DEFAULT NULL ,
+`dayNumber`  int(11) NOT NULL DEFAULT 0,
+INDEX `index_1` (`shopid`, `goodsid`, `zlprice`) USING BTREE 
+)
+ENGINE=InnoDB
+DEFAULT CHARACTER SET=utf8 COLLATE=utf8_general_ci
+ROW_FORMAT=DYNAMIC;
+SELECT x.shopid,x.goodsid,x.zlprice,COUNT(1) AS dayNumber
+FROM tmp_everyday_dms_0 x,tmp_dms1 y 
+WHERE x.goodsid=y.goodsid AND 
+x.sdate>=changeday AND DATE(NOW())<DATE_ADD(changeday,INTERVAL 7*y.weeknum DAY) AND x.zlprice=0.0 AND x.qty=0.0
+GROUP BY  x.shopid
+         ,x.goodsid
+         ,x.zlprice;
+
+UPDATE tmp_everyday_tmp_tmp_1 a,tmp_everyday_tmp_tmp_2 b 
+SET a.dayNumber=a.dayNumber+b.dayNumber
+WHERE a.shopid=b.shopid AND a.goodsid=b.goodsid AND a.zlprice=b.zlprice;
+
+####
+
+
 
 DROP TABLE IF EXISTS tmp_everyday_tmp_1;
 CREATE TABLE tmp_everyday_tmp_1 (
@@ -182,56 +265,6 @@ DEFAULT CHARACTER SET=utf8 COLLATE=utf8_general_ci
 ROW_FORMAT=DYNAMIC;
 
 
-#主力价格回插
-UPDATE tmp_everyday_dms_0 x LEFT JOIN tmp_everyday_dms_000 y ON x.shopid=shopid AND y.shopid=shopid 
-AND x.goodsid=y.goodsid AND x.zkb=y.zkb 
-SET x.zlprice=y.zlprice;
-
-
-####new
-DROP TABLE IF EXISTS tmp_everyday_tmp_tmp_1;
-CREATE TABLE tmp_everyday_tmp_tmp_1 SELECT * FROM tmp_everyday_tmp_1;
-INSERT INTO tmp_everyday_tmp_1(shopid, shopname, goodsid, goodsname, salevalue, 
-discvalue, disc, zlprice, normalprice, qty, sdate, zkb, dayNumber, discDayNumber)
-SELECT  x.shopid                                                                   AS shopid
-       ,x.shopname                                                                 AS shopname
-       ,x.goodsid                                                                  AS goodsid
-       ,x.goodsname                                                                AS goodsname
-       ,SUM(x.salevalue)                                                           AS salevalue
-       ,SUM(x.discvalue)                                                           AS discvalue
-       ,0																						                               AS disc
-       ,x.zlprice                                                                  AS zlprice
-       ,x.normalprice                                                              AS normalprice
-       ,SUM(x.qty)                                                                 AS qty
-       ,x.sdate                                                                    AS sdate
-       ,zkb														                                             AS zkb
-       ,COUNT(IF(x.zkb>=0.95,1,0))                                                           AS dayNumber
-       ,COUNT(IF((x.normalprice>0.0 AND x.qty>0.0),1,0)) 													 AS discDayNumber
-FROM tmp_everyday_dms_0 x,tmp_dms1 y 
-WHERE x.goodsid=y.goodsid AND 
-x.sdate>=changeday AND DATE(NOW())<DATE_ADD(changeday,INTERVAL 7*y.weeknum DAY)
-GROUP BY  x.shopid
-         ,x.goodsid
-         ,x.zlprice;
-
-DROP TABLE IF EXISTS tmp_everyday_tmp_tmp_2;
-CREATE TABLE tmp_everyday_tmp_tmp_2
-SELECT x.shopid,x.goodsid,COUNT(IF((x.normalprice=0.0 AND x.qty=0.0),1,0)) AS dayNumber
-FROM tmp_everyday_dms_0 x,tmp_dms1 y 
-WHERE x.goodsid=y.goodsid AND 
-x.sdate>=changeday AND DATE(NOW())<DATE_ADD(changeday,INTERVAL 7*y.weeknum DAY)
-GROUP BY  x.shopid
-         ,x.goodsid
-         ,x.zlprice;
-
-UPDATE tmp_everyday_tmp_tmp_1 a,tmp_everyday_tmp_tmp_2 b 
-SET a.dayNumber=a.dayNumber+b.dayNumber
-WHERE a.shopid=b.shopid AND a.goodsid=b.goodsid;
-
-####
-
-
-
 INSERT INTO tmp_everyday_tmp_1(shopid, shopname, goodsid, goodsname, salevalue, 
 discvalue, disc, zlprice, normalprice, qty, sdate, zkb, dayNumber, discDayNumber)
 SELECT  x.shopid                                                                   AS shopid
@@ -247,16 +280,13 @@ SELECT  x.shopid                                                                
        ,x.sdate                                                                    AS sdate
        ,zkb														                                             AS zkb
        ,COUNT(x.zlprice)                                                           AS dayNumber
-       ,COUNT(IF((x.normalprice>0.0 AND x.qty>0.0),1,0)) 													 AS discDayNumber
-FROM tmp_everyday_dms_0 x,tmp_dms1 y 
-WHERE x.goodsid=y.goodsid AND 
-x.sdate>=DATE_SUB(date(NOW()),INTERVAL 7*y.weeknum DAY) AND x.sdate<changeday AND 
-DATE(today)<DATE_ADD(changeday,INTERVAL 7*y.weeknum DAY) 
+       ,COUNT(IF((x.zlprice<(getZKB(x.zlprice,x.normalprice)*x.normalprice)),1,0)) AS discDayNumber
+FROM tmp_everyday_dms_0 x 
+where x.qty!=0 or x.zlprice!=0 AND 
+x.sdate>=DATE_SUB(date(NOW()),INTERVAL 7*y.weeknum DAY) AND x.sdate<changeday 
 GROUP BY  x.shopid
          ,x.goodsid
          ,x.zlprice;
-
-
 
 
 DROP TABLE IF EXISTS tmp_everyday_tmp_2;
@@ -313,18 +343,18 @@ goodsid  varchar(32) CHARACTER SET utf8 COLLATE utf8_general_ci NULL DEFAULT NUL
 dayNumberSum  INT DEFAULT NULL ,
 INDEX index_1 (shopid, goodsid) USING BTREE 
 )
-ENGINE=InnoDB
-DEFAULT CHARACTER SET=utf8 COLLATE=utf8_general_ci
+ENGINE=InnoDB 
+DEFAULT CHARACTER SET=utf8 COLLATE=utf8_general_ci 
 ROW_FORMAT=DYNAMIC;
 
 
-INSERT INTO tmp_everyday_tmp_2_1 (shopid,goodsid,dayNumberSum)
-SELECT  z.shopid
-       ,z.goodsid
-       ,SUM(z.allDayNumber) AS dayNumberSum
-FROM tmp_everyday_tmp_2 z
+INSERT INTO tmp_everyday_tmp_2_1 (shopid,goodsid,dayNumberSum) 
+SELECT  z.shopid 
+       ,z.goodsid 
+       ,SUM(z.allDayNumber) AS dayNumberSum 
+FROM tmp_everyday_tmp_2 z 
 WHERE z.zkb<0.95 
-GROUP BY  z.shopid
+GROUP BY  z.shopid 
          ,z.goodsid;
 
 
@@ -370,12 +400,18 @@ zn_price_dms.disc1=VALUES(disc1),
 zn_price_dms.disc2=VALUES(disc2),
 zn_price_dms.band1=VALUES(band1),
 zn_price_dms.band2=VALUES(band2),
-zn_price_dms.trueprice=VALUES(trueprice),
+zn_price_dms.trueprice=a.zlprice,
 zn_price_dms.dms=VALUES(dms),
 zn_price_dms.sdate=now(),
 zn_price_dms.display_flag=VALUES(display_flag);
 
-
+##节日专属商品停止累计促销数量和天数
+/*drop temporary table if exists tmp_hg;
+create temporary table tmp_hg(
+	select a.*
+	from zn_prom_detail_tmp a join v_zn_md_yt_ywq b on a.shopid=b.shopid join zn_holiday_goods c on b.ywqid=c.ywqid and a.goodsid=c.goodsid and c.holidayid!='01'
+			join zn_calendar d on c.holidayid=d.holidayid and year(d.sundate)=year(today)
+);*/
 #b0.更新上一日销售数据到zn_prom_detail_tmp中
 UPDATE zn_prom_detail_tmp x 
 SET x.totalDays=CASE WHEN ISNULL(x.totalDays) THEN 1 
@@ -388,10 +424,12 @@ SET x.totalQty=CASE WHEN ISNULL(x.totalQty) THEN 0+y.qty
 WHERE x.shopid=shopid AND y.shopid=shopid AND 
 			x.goodsid=y.goodsid AND x.begindate<today and DATE_ADD(DATE(x.enddate),INTERVAL 1 DAY)>=today and y.sdate=DATE_ADD(today,INTERVAL -1 day);
 
+/*update zn_prom_detail_tmp a join tmp_hg b on a.shopid=b.shopid and a.goodsid=b.goodsid and a.begindate=b.begindate and a.enddate=b.enddate
+set a.totalDays=b.totaldays,a.totalQty=b.totalqty;*/
 
 #b. 用zn_daly_sales n周（与促销周期一致）数据计算zn_prom_detail_tmp表中的促销刚刚结束的促销品的日均销量=促销周期内销售数量/促销周期。更新或新增zn_price_dms中促销售价对应的dms
 DROP TABLE IF EXISTS tmp_everyday_tmp_3;
-CREATE TABLE tmp_everyday_tmp_3 ( 
+CREATE TABLE tmp_everyday_tmp_3 (
 `planid`  varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '促销计划编号' ,
 `planname`  varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '促销计划名称' ,
 `enddate`  datetime NULL DEFAULT NULL COMMENT '促销结束日期时间' ,
@@ -443,7 +481,11 @@ SELECT
 FROM
         zn_prom_detail_tmp x,v_zn_goodsshop y,v_goods z,v_shopname w,v_zn_cg_dl_zl_xl a
 WHERE x.shopid=shopid AND DATE_ADD(CAST(x.enddate AS date),INTERVAL 1 DAY)<=today AND y.shopid=shopid AND 
-z.goodsid=x.goodsid AND y.goodsid=x.goodsid AND a.xlid=z.deptid and w.shopid=shopId and z.deptid=a.xlid;
+z.goodsid=x.goodsid AND y.goodsid=x.goodsid AND a.xlid=z.deptid and w.shopid=shopId and z.deptid=a.xlid and x.totalqty!=0;
+
+##节日专属商品若totaldays>促销周期时长的50% 或 totaldays>7时则更新促销的dms，否则不更新dms。
+##delete a from tmp_everyday_tmp_3 a join tmp_hg b on a.shopid=b.shopid and a.goodsid=b.goodsid and a.begindate=b.begindate and a.enddate=b.enddate
+##where a.totalDays<7 and a.totalDays<datediff(a.enddate,a.begindate)*0.5;
 
 INSERT INTO zn_price_dms (shopid,shopname,goodsid,goodsname,xlid,xlname,normalprice,disc1,disc2,band1,band2,trueprice,dms,sdate,display_flag)
 SELECT 
@@ -477,7 +519,7 @@ zn_price_dms.disc1=VALUES(disc1),
 zn_price_dms.disc2=VALUES(disc2),
 zn_price_dms.band1=VALUES(band1),
 zn_price_dms.band2=VALUES(band2),
-zn_price_dms.trueprice=VALUES(trueprice),
+zn_price_dms.trueprice=a.price,
 zn_price_dms.dms=VALUES(dms),
 zn_price_dms.sdate=VALUES(sdate),
 zn_price_dms.display_flag=values(display_flag);
